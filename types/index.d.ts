@@ -1,5 +1,5 @@
 // 'diff' is no tab of the row: it opens over the tab it came from.
-export type Tab = 'files' | 'changes' | 'diff' | 'commits' | 'plan'
+export type Tab = 'files' | 'changes' | 'diff' | 'commits'
 
 export type ChangeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
 
@@ -63,6 +63,18 @@ export type Shown = {
   isCut: boolean
 }
 
+// A file Claude changed this session: when last, with which tool, how often.
+export type Touch = { at: number; tool: string; count: number }
+
+// A question the panel is asking before it does something it cannot undo.
+export type Confirm = { kind: 'discard'; path: string; how: 'clean' | 'remove' | 'restore' }
+
+// A commit message being drafted for what is staged.
+export type Draft = { state: 'writing' | 'ready' | 'error'; text: string }
+
+// A one-line note in the panel's title line.
+export type Notice = { text: string; kind: 'ok' | 'error' }
+
 declare module 'claude-code' {
   interface PluginState {
     'clawd-git': {
@@ -85,8 +97,13 @@ declare module 'claude-code' {
       scrollY: Record<string, number>
       scrollX: number
       matches: string[]
-      // Plan tasks the person opened to see their steps and files.
-      openTasks: string[]
+      // The files Claude changed this session, by path; and whether Changes
+      // lists only those.
+      touched: Record<string, Touch>
+      sessionOnly: boolean
+      confirm: Confirm | null
+      draft: Draft | null
+      notice: Notice | null
       // The icon set this machine's fonts can draw, found when the session starts.
       iconSet: 'line' | 'nerd' | 'outline' | 'simple'
     }

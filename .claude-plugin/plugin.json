@@ -1,7 +1,7 @@
 {
   "name": "clawd-git",
-  "version": "0.2.0",
-  "description": "A live git panel beside the conversation: the file tree, changes, colored diffs, the commit graph and Claude's plan",
+  "version": "0.3.0",
+  "description": "A live git panel beside the conversation: the file tree, changes, colored diffs and the commit graph; marks what Claude changed, stages, commits and asks Claude to review",
   "author": {
     "name": "Omid Hosseini",
     "url": "https://github.com/itsomidho"
@@ -65,9 +65,12 @@
         "prompt"
       ],
       "default": "side"
+    },
+    "editor": {
+      "type": "string",
+      "title": "Editor",
+      "description": "How Open shows a file: auto tries code, cursor, zed, subl and phpstorm, then the system's opener. Or a command, with {file} and {line}, e.g. code -g {file}:{line}.",
+      "default": "auto"
     }
-  },
-  "dependencies": [
-    "clawd-tasks"
-  ]
+  }
 }

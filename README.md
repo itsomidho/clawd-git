@@ -1,6 +1,34 @@
 # clawd-git
 
-A live git panel for Claude Code, docked beside the conversation and styled like [clawd-statusbar](https://github.com/itsomidho/clawd-statusbar). It updates as Claude edits files. Prefer it inside the main screen? Set **Placement** to `prompt` and it sits above the prompt instead.
+A live git panel for [Claude Code](https://claude.com/claude-code), docked beside the conversation and styled like [clawd-statusbar](https://github.com/itsomidho/clawd-statusbar). It shows the files, the changes and the commit graph as Claude works, marks the files Claude changed, and lets you stage, commit, and ask Claude to review a diff without leaving the session.
+
+![The panel through one session: Claude's edits marked in Files and Changes, the By Claude filter, a diff with Review, staging, a drafted commit message and the commit graph](docs/demo.gif)
+
+<sub>One session, time-lapsed: Claude edits two files, which show up marked ✦; Changes narrows to Claude's files; a diff opens and goes to Claude for review; both files are staged, a commit message is drafted and committed, and the commit graph shows it.</sub>
+
+## What it shows
+
+| Tab | |
+|---|---|
+| **Files** | The folder tree on disk, as an editor's sidebar: open a folder, press a file to see its diff (or its text). Git-ignored entries dimmed, changed files colored with their status, folders holding changes marked •. **Search** finds any file by name. |
+| **Changes** | The branch and every changed file, grouped (conflicts, staged, unstaged, new), with `+added −removed`. **Diff all** shows every change at once. |
+| **Commits** | The commit graph across all branches, one color per lane; press a commit to see its diff. |
+
+A diff opens over the tab it came from; **Back** returns there. The header stays put while the rows scroll (wheel, PageUp/PageDown, Home/End), and anything wider than the panel slides sideways with ◀ ▶.
+
+### What Claude changed
+
+Every file Claude writes this session (with Edit, Write, or a shell command) is marked **✦** in Files and Changes. **By Claude** narrows Changes to those files; a `/clear` starts the list over.
+
+### Acting on it
+
+| | |
+|---|---|
+| **+** **−** **↺** on a row | stage, unstage, discard (discard asks first: it cannot be undone) |
+| **Stage all** / **Unstage all** | on a group's header |
+| **Commit** | drafts a message for what is staged, in the style of your recent commits; then **Commit**, **Again**, **Ask Claude** (hand the draft to Claude to adjust and commit), or **Cancel** |
+| **Review** on a diff, **Explain** on a commit | sends Claude a request to review the changes or explain the commit |
+| **Open** on a file's diff | opens the file in your editor at its first changed line |
 
 ## Install
 
@@ -12,21 +40,34 @@ In Claude Code, type:
 
 Answer `y` to add the marketplace if asked, then choose a scope. From a shell: `claude plugin install clawd-git --marketplace itsomidho/claude-plugins`.
 
-The Plan tab reads [clawd-tasks](https://github.com/itsomidho/clawd-tasks), from the same marketplace. File icons follow your fonts: with a [Nerd Font](https://www.nerdfonts.com/) installed, crisp line icons (VS Code's Codicons), or colored file-type icons with `nerd`; without one, outline folder and page symbols (🗀 🗁 🗋, from Noto Sans Symbols 2, which most Linux desktops ship); with neither, colored dots. Nothing draws as boxes. Force a set with the **File icons** setting (`auto`, `line`, `nerd`, `outline`, `simple`, `off`).
+For Claude's plan as it works, add [clawd-tasks](https://github.com/itsomidho/clawd-tasks) from the same marketplace: it shows the plan under the prompt, while this panel shows the files.
 
-## What it shows
+## Use
 
-One panel, with a row of tabs:
+`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `commits` or `diff` opens it on that tab. Click anything in it, or focus it with ctrl+x tab to move through it by keyboard. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
 
-| Tab | Shows |
+It refreshes right after each edit or shell command of Claude's. In between it asks git for its status every 2 seconds and reads the rest only when something moved, so a quiet repository costs one `git status` per tick.
+
+## Settings
+
+In `/config`:
+
+| Setting | |
 |---|---|
-| **Files** | The folder tree on disk, as an editor's sidebar: click a folder to open or close it, a file to see its diff (or its text). File icons, git-ignored entries dimmed, changed files colored, folders holding changes marked • |
-| **Changes** | The branch, and each changed file (staged, unstaged, new, conflicts) with `+added −removed`; "diff all" shows every change at once |
-| **Commits** | The commit graph across all branches, one color per lane; press a commit to see its diff |
-| **Plan** | Claude's plan from clawd-tasks, live: a progress bar, each task's time and changes, the running task's steps; press a task to open it, a file to see its diff |
+| **Placement** | `side` (default): docked beside the conversation. `prompt`: inside the main screen, above the prompt |
+| **Panel height** | rows above the prompt, with Placement `prompt` (16) |
+| **Show on start** | show the panel when a session starts |
+| **Refresh every** | seconds between status checks (2) |
+| **File icons** | `auto` (default) picks by your fonts: with a [Nerd Font](https://www.nerdfonts.com/), `line` (VS Code's Codicons); else `outline` (🗀 🗁 🗋, from Noto Sans Symbols 2) when the fonts have it; else `simple` (colored dots). Or `nerd` for colored file-type icons, or `off`. Nothing draws as boxes |
+| **Pane background** | `none` (default) keeps your terminal's background; or a color |
+| **Editor** | `auto` tries code, cursor, zed, subl and phpstorm, then the system's opener; or a command with `{file}` and `{line}`, e.g. `code -g {file}:{line}` |
 
-A diff opens over the tab you pressed it from; **Back** returns there. The toolbar icons search every file by name, close every folder and refresh.
+## Development
 
-`/git-pane` shows or hides it; `/git-pane files`, `changes`, `commits`, `plan` or `diff` opens it on that tab. Click anything in it, scroll it with the wheel, or focus it with ctrl+x tab to move through it by keyboard. Above the prompt, its height is the **Panel height** setting (16 rows by default).
+```
+claude plugin validate .
+claude plugin test .
+python3 docs/demo_gif.py docs/demo.gif   # needs Pillow and FiraCode Nerd Font Mono
+```
 
-It re-reads git every 2 seconds while shown, and right after each Edit, Write or Bash call. Settings (`/config`): **Open on start**, **Refresh every (seconds)**.
+The hooks live in `hooks/`: `register.tsx` wires them, `data.ts` reads git and the disk, `actions.ts` is what a press does, `pages.tsx` builds each tab, `draw.tsx` draws the frames, `git.ts` and `icons.ts` are pure helpers with their own tests.

@@ -31,14 +31,24 @@ function ok(stdout: string, exitCode = 0) {
   return { value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
 }
 
+// What the panel asked of the world: git commands, their input, prompts.
+type Seen = { argv: string[][]; stdin: (string | undefined)[]; prompts: string[] }
+
 // A fake repository at /work/app: one changed file, one new file, two commits.
-function world(on: On, opts: { diff?: string } = {}) {
+function world(on: On, opts: { diff?: string; status?: string; staged?: string } = {}): Seen {
+  const seen: Seen = { argv: [], stdin: [], prompts: [] }
   on('session.cwd', () => ({ value: '/work/app' }))
+  on('prompt.submit', ($, e) => { seen.prompts.push(e.text); return { text: e.text } as never })
+  on('model.complete', () => ({ value: { isAnswered: true, text: 'Add the a module', usage: {} } }) as never)
+  on('tool.call', () => ({ result: {}, text: 'done' }) as never)
   on('process.run', ($, e) => {
+    seen.argv.push([...e.argv])
+    seen.stdin.push(e.init?.stdin)
     const args = e.argv.join(' ')
+    if (e.argv[0] === 'which') return ok(e.argv[1] === 'code' ? '/usr/bin/code\n' : '', e.argv[1] === 'code' ? 0 : 1)
     if (args.includes('rev-parse --show-toplevel')) return ok('/work/app\n')
-    if (args.includes('status --porcelain')) return ok('## main...origin/main [ahead 1]\n M src/a.ts\n?? notes.md\n')
-    if (args.includes('diff --cached --numstat')) return ok('')
+    if (args.includes('status --porcelain')) return ok(opts.status ?? '## main...origin/main [ahead 1]\n M src/a.ts\n?? notes.md\n')
+    if (args.includes('diff --cached --numstat')) return ok(opts.staged ?? '')
     if (args.includes('diff --numstat')) return ok('2\t1\tsrc/a.ts\n')
     if (args.includes('diff --no-index')) return ok(NEW_FILE, 1)
     if (args.includes('diff HEAD')) return ok(opts.diff ?? DIFF)
@@ -58,6 +68,12 @@ function world(on: On, opts: { diff?: string } = {}) {
   on('ui.scroll', () => ({}))
   on('clock.now', () => ({ value: 100_000 }))
   on('ui.render', ($, e) => h($.ui.resolve(e).Box, {}) as RenderElement)
+  return seen
+}
+
+// Whether a git command was run, by its words after `git -c ... -c ...`.
+function ran(seen: Seen, words: string) {
+  return seen.argv.some(argv => argv[0] === 'git' && argv.join(' ').includes(words))
 }
 
 // The side pane, the default placement.
@@ -111,9 +127,8 @@ test('the pane walks through every tab on terminal and desktop', async ($, on) =
     expect((await ui.find({ text: /Add a/ }))).toBeDefined()
     expect(await ui.find({ type: 'Code' })).toBeDefined()
 
-    // Plan: the placeholder.
-    await ui.press({ key: 'tab:plan' })
-    expect(await ui.find({ text: /No plan yet/ })).toBeDefined()
+    // Three tabs: no Plan (clawd-tasks shows the plan under the prompt).
+    expect(await ui.find({ key: 'tab:plan' })).toBe(undefined)
 
     await ui.press({ key: 'tab:changes' })
     await ui.unmount()
@@ -156,44 +171,6 @@ test('the Files tab reads folders from disk and opens them on press', async ($, 
     await ui.press({ key: 'back' })
     await ui.press({ key: 'search-close' })
     expect(await ui.find({ key: 'dir:src' })).toBeDefined()
-    await ui.unmount()
-  }
-})
-
-const BOARD = {
-  startedAt: 0,
-  loose: 0,
-  tasks: [
-    { id: '1', subject: 'Read the API', activeForm: 'Reading the API', status: 'completed' as const, startedAt: 0, endedAt: 80_000,
-      steps: [], dropped: 0, files: [], agents: 0 },
-    { id: '2', subject: 'Write the pane', activeForm: 'Writing the pane', status: 'in_progress' as const, startedAt: 80_000,
-      steps: [{ id: 's1', tool: 'Edit', label: 'src/a.ts', startedAt: 90_000, endedAt: 92_000 },
-              { id: 's2', tool: 'Bash', label: 'npm test', startedAt: 95_000 }],
-      dropped: 0, files: [{ path: 'src/a.ts', added: 2, removed: 1 }], agents: 0 },
-    { id: '3', subject: 'Ship it', activeForm: 'Shipping it', status: 'pending' as const, steps: [], dropped: 0, files: [], agents: 0 },
-  ],
-}
-
-test('the Plan tab draws the clawd-tasks board live', async ($, on) => {
-  world(on)
-  on('state.get', ($, e, next) => (e.plugin === 'clawd-tasks' && e.key === 'board'
-    ? { value: { value: BOARD, version: 1 } }
-    : next(e)) as never)
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'clawd-git', surface, ...PANE })
-    expect((await ui.find({ key: 'tab:plan' }))?.text).toContain('Plan 1/3')
-    await ui.press({ key: 'tab:plan' })
-    expect(await ui.find({ text: /1\/3 done/ })).toBeDefined()
-    // The running task shows its active form, its steps and its files.
-    expect((await ui.find({ key: 't:2' }))?.text).toContain('Writing the pane')
-    expect(await ui.find({ text: /npm test/ })).toBeDefined()
-    expect(await ui.find({ key: 'f:2:src/a.ts' })).toBeDefined()
-    // A finished task stays closed; the pending one too.
-    expect((await ui.find({ key: 't:1' }))?.text).toContain('1m 20s')
-    // A file of the task opens its diff.
-    await ui.press({ key: 'f:2:src/a.ts' })
-    expect((await ui.find({ type: 'Code' }))?.props.format).toBe('diff')
-    await ui.press({ key: 'tab:changes' })
     await ui.unmount()
   }
 })
@@ -301,5 +278,108 @@ test('above the prompt, /git-pane hides and shows the panel', { options: { place
   await $.command.run({ command: 'git-pane', args: 'changes' } as never)
   await ui.redraw()
   expect(await ui.find({ key: 'chg:src/a.ts' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('files Claude edits are marked, and Changes can list only those', async ($, on) => {
+  world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:changes' })
+  expect(await ui.find({ key: 'session' })).toBe(undefined)
+  await $.tool.call({ tool: 'Edit', file_path: '/work/app/src/a.ts', old_string: 'old', new_string: 'new' } as never)
+  await ui.press({ key: 'tab:changes' })
+  expect((await ui.find({ key: 'chg:src/a.ts' }))?.text).toContain('\u2726')
+  expect((await ui.find({ key: 'chg:notes.md' }))?.text).not.toContain('\u2726')
+  expect((await ui.find({ key: 'session' }))?.text).toContain('By Claude 1')
+  await ui.press({ key: 'session' })
+  expect(await ui.find({ key: 'chg:src/a.ts' })).toBeDefined()
+  expect(await ui.find({ key: 'chg:notes.md' })).toBe(undefined)
+  await ui.press({ key: 'session' })
+  expect(await ui.find({ key: 'chg:notes.md' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('stage, unstage, and discard after a confirmation', async ($, on) => {
+  const seen = world(on, { status: '## main\nMM src/a.ts\n?? notes.md\n', staged: '1\t0\tsrc/a.ts\n' })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:changes' })
+  await ui.press({ key: 'stage:notes.md' })
+  expect(ran(seen, 'add -- notes.md')).toBe(true)
+  await ui.press({ key: 'unstage:src/a.ts' })
+  expect(ran(seen, 'restore --staged -- src/a.ts')).toBe(true)
+  await ui.press({ key: 'gact:New' })
+  expect(ran(seen, 'add -- notes.md')).toBe(true)
+  // Discard asks first, and does nothing on Cancel.
+  await ui.press({ key: 'discard:src/a.ts' })
+  expect(await ui.find({ key: 'confirm-yes' })).toBeDefined()
+  await ui.press({ key: 'confirm-no' })
+  expect(ran(seen, 'restore --staged --worktree')).toBe(false)
+  await ui.press({ key: 'discard:src/a.ts' })
+  await ui.press({ key: 'confirm-yes' })
+  expect(ran(seen, 'restore --staged --worktree --source=HEAD -- src/a.ts')).toBe(true)
+  // A new file is deleted with git clean.
+  await ui.press({ key: 'discard:notes.md' })
+  await ui.press({ key: 'confirm-yes' })
+  expect(ran(seen, 'clean -f -q -- notes.md')).toBe(true)
+  await ui.unmount()
+})
+
+test('a diff asks Claude to review it; a commit asks Claude to explain it', async ($, on) => {
+  const seen = world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:changes' })
+  await ui.press({ key: 'chg:src/a.ts' })
+  await ui.press({ key: 'review' })
+  expect(seen.prompts[0]).toContain('Review the uncommitted changes in `src/a.ts`')
+  await ui.press({ key: 'tab:commits' })
+  await ui.press({ key: 'c:abc1234:0' })
+  expect((await ui.find({ key: 'review' }))?.text).toContain('Explain')
+  await ui.press({ key: 'review' })
+  expect(seen.prompts[1]).toContain('Explain commit abc1234')
+  await ui.unmount()
+})
+
+test('a commit message is drafted for what is staged, and committed', async ($, on) => {
+  const seen = world(on, { status: '## main\nM  src/a.ts\n', staged: '2\t1\tsrc/a.ts\n' })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:changes' })
+  await ui.press({ key: 'commit' })
+  expect(await ui.find({ text: /Add the a module/ })).toBeDefined()
+  await ui.press({ key: 'draft-commit' })
+  const at = seen.argv.findIndex(argv => argv.join(' ').includes('commit -q -F -'))
+  expect(at >= 0).toBe(true)
+  expect(seen.stdin[at]).toBe('Add the a module\n')
+  expect(await ui.find({ key: 'draft-commit' })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('a file opens in the editor at its first changed line', async ($, on) => {
+  const seen = world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:changes' })
+  await ui.press({ key: 'chg:src/a.ts' })
+  await ui.press({ key: 'edit' })
+  expect(seen.argv.some(argv => argv.join(' ') === 'code -g /work/app/src/a.ts:1')).toBe(true)
+  await ui.unmount()
+})
+
+test('an editor command from the setting takes {file} and {line}', { options: { editor: 'myedit --at {line} {file}' } }, async ($, on) => {
+  const seen = world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:changes' })
+  await ui.press({ key: 'chg:src/a.ts' })
+  await ui.press({ key: 'edit' })
+  expect(seen.argv.some(argv => argv.join(' ') === 'myedit --at 1 /work/app/src/a.ts')).toBe(true)
+  await ui.unmount()
+})
+
+
+test('a Plan tab left open by 0.2 falls back to Files', async ($, on) => {
+  world(on)
+  on('state.get', ($, e, next) => (e.plugin === 'clawd-git' && e.key === 'tab'
+    ? { value: { value: 'plan', version: 1 } }
+    : next(e)) as never)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  expect((await ui.find({ key: 'tab:files' }))?.text).toContain('◆ Files')
   await ui.unmount()
 })
