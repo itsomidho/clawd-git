@@ -1,5 +1,7 @@
-// Nerd Font icons for the Files pane, colored like an editor's file icons.
-// Needs a Nerd Font in the terminal; the `icons` option turns them off.
+// File icons, colored like an editor's. Two sets: Nerd Font glyphs, and a
+// simple set of symbols every monospace font has (a colored dot per file type,
+// a square per folder), for terminals with no Nerd Font, where the glyphs
+// would draw as boxes holding their hex codes.
 
 export type Icon = { glyph: string; color: string }
 
@@ -130,4 +132,39 @@ export function iconFor(name: string, isDir: boolean, isOpen: boolean): Icon {
   const dot = lower.lastIndexOf('.')
   if (dot > 0) return BY_EXT[lower.slice(dot + 1)] ?? FILE
   return FILE
+}
+
+export type IconMode = 'line' | 'nerd' | 'outline' | 'simple' | 'off'
+
+// The line set: Codicons, VS Code's own line icons (in every Nerd Font), as
+// an editor's sidebar draws them: folders in the text color, pages in gray.
+export function lineIconFor(name: string, isDir: boolean, isOpen: boolean): Icon {
+  if (isDir) return { glyph: isOpen ? '\ueaf7' : '\uea83', color: 'blue' }
+  return { glyph: '\uea7b', color: 'gray' }
+}
+
+// The outline set: Unicode's own line-drawn folder and page symbols, as an
+// editor's sidebar draws them. No Nerd Font needed: on Linux they come from
+// Noto Sans Symbols 2, which most desktops ship.
+export function outlineIconFor(name: string, isDir: boolean, isOpen: boolean): Icon {
+  if (isDir) return { glyph: isOpen ? '\u{1F5C1}' : '\u{1F5C0}', color: 'blue' }
+  return { glyph: '\u{1F5CB}', color: 'gray' }
+}
+
+// The simple set: the same colors, drawn with symbols every font has.
+export function simpleIconFor(name: string, isDir: boolean, isOpen: boolean): Icon {
+  const nerd = iconFor(name, isDir, isOpen)
+  return { glyph: isDir ? '■' : '●', color: nerd.color }
+}
+
+// The icon set a machine's fonts can draw: Nerd Font glyphs, the outline
+// symbols, or else the simple set.
+export function iconSetFor(nerdFamilies: string, outlineFamilies: string): Exclude<IconMode, 'off'> {
+  if (hasNerdFont(nerdFamilies)) return 'line'
+  return outlineFamilies.trim() !== '' ? 'outline' : 'simple'
+}
+
+// Font family names, one per line as `fc-list` prints them: is a Nerd Font among them?
+export function hasNerdFont(families: string): boolean {
+  return /nerd font|\bNFM?\b/i.test(families)
 }

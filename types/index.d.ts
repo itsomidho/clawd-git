@@ -1,4 +1,5 @@
-export type Tab = 'changes' | 'diff' | 'commits' | 'plan'
+// 'diff' is no tab of the row: it opens over the tab it came from.
+export type Tab = 'files' | 'changes' | 'diff' | 'commits' | 'plan'
 
 export type ChangeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
 
@@ -65,7 +66,10 @@ export type Shown = {
 declare module 'claude-code' {
   interface PluginState {
     'clawd-git': {
+      // Whether the panel is up, above the prompt.
+      isShown: boolean
       tab: Tab
+      back: Tab
       repo: Repo
       view: View
       shown: Shown
@@ -75,8 +79,16 @@ declare module 'claude-code' {
       // The folder the Files pane shows: the repository's top, else the session's folder.
       filesRoot: string
       openDirs: string[]
+      // The Files search box: null while closed, else the typed text; and its matches.
+      query: string | null
+      // Each page's first row in view, by page; and how far code is slid sideways.
+      scrollY: Record<string, number>
+      scrollX: number
+      matches: string[]
       // Plan tasks the person opened to see their steps and files.
       openTasks: string[]
+      // The icon set this machine's fonts can draw, found when the session starts.
+      iconSet: 'line' | 'nerd' | 'outline' | 'simple'
     }
   }
 }

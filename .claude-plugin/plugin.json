@@ -1,7 +1,7 @@
 {
   "name": "clawd-git",
-  "version": "0.1.0",
-  "description": "A live git side pane: changed files, diffs, the commit graph and the file tree, in tabs",
+  "version": "0.2.0",
+  "description": "A live git panel beside the conversation: the file tree, changes, colored diffs, the commit graph and Claude's plan",
   "author": {
     "name": "Omid Hosseini",
     "url": "https://github.com/itsomidho"
@@ -20,8 +20,8 @@
   "userConfig": {
     "autoOpen": {
       "type": "boolean",
-      "title": "Open on start",
-      "description": "Open the git pane when a session starts (it docks beside the conversation in fullscreen, on a terminal 144 columns or wider).",
+      "title": "Show on start",
+      "description": "Show the git panel when a session starts. /git-pane shows or hides it.",
       "default": true
     },
     "refreshSeconds": {
@@ -31,10 +31,40 @@
       "default": 2
     },
     "icons": {
-      "type": "boolean",
+      "type": "string",
       "title": "File icons",
-      "description": "Show file-type icons in the Files pane. Needs a Nerd Font in your terminal; turn off if you see empty boxes.",
-      "default": true
+      "description": "auto: with a Nerd Font installed, line icons (VS Code's Codicons); else outline symbols when the fonts have them; else colored dots. line, nerd (colored file-type icons), outline, simple or off to force one.",
+      "options": [
+        "auto",
+        "line",
+        "nerd",
+        "outline",
+        "simple",
+        "off"
+      ],
+      "default": "auto"
+    },
+    "background": {
+      "type": "string",
+      "title": "Pane background",
+      "description": "none (the default) keeps your terminal's own background. Or a hex color for a sidebar shade; pick one a step lighter than your terminal's, e.g. #1d1e20 on a #161718 terminal.",
+      "default": "none"
+    },
+    "rows": {
+      "type": "number",
+      "title": "Panel height (rows)",
+      "description": "With Placement set to prompt: how many rows the panel takes above the prompt, at most half the screen.",
+      "default": 16
+    },
+    "placement": {
+      "type": "string",
+      "title": "Placement",
+      "description": "side: a pane docked beside the conversation (fullscreen terminal). prompt: a panel inside the main screen, above the prompt.",
+      "options": [
+        "side",
+        "prompt"
+      ],
+      "default": "side"
     }
   },
   "dependencies": [

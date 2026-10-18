@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
-import { fsTreeRows, parseLog, parseNumstat, parseStatus, sortEntries, splitDiff } from '../hooks/git'
-import { iconFor } from '../hooks/icons'
+import { fsTreeRows, hunkLines, hunkOf, parseLog, parseNumstat, parseStatus, sortEntries, splitDiff } from '../hooks/git'
+import { hasNerdFont, iconFor, iconSetFor, outlineIconFor, simpleIconFor } from '../hooks/icons'
 
 test('status: branch, ahead/behind, kinds and renames', async () => {
   const out = parseStatus([
@@ -91,4 +91,30 @@ test('icons: by name, by extension, folders and a fallback', async () => {
   expect(iconFor('src', true, false).glyph).toBe('')
   expect(iconFor('Makefile', false, false).glyph).toBe('')
   expect(iconFor('weird', false, false).glyph).toBe('')
+})
+
+test('diff lines: numbered, and a slice drawn again as its own hunk', async () => {
+  const lines = hunkLines('@@ -10,3 +10,4 @@ fn main\n keep\n-old\n+new\n+more\n keep2')
+  expect(lines.map(one => one.kind)).toEqual(['hunk', 'ctx', 'del', 'add', 'add', 'ctx'])
+  expect(lines[0]?.text).toBe('fn main')
+  expect(lines[5]?.oldAt).toBe(12)
+  expect(lines[5]?.newAt).toBe(13)
+  expect(hunkOf(lines.slice(3, 6), 2)).toBe('@@ -12,1 +11,3 @@\n+w\n+re\n ep2')
+})
+
+test('icons: a Nerd Font is found by family name; the simple set keeps the colors', async () => {
+  expect(hasNerdFont('JetBrainsMono Nerd Font,JetBrainsMono NF\nDejaVu Sans')).toBe(true)
+  expect(hasNerdFont('FiraCode Nerd Font Mono,FiraCode NFM')).toBe(true)
+  expect(hasNerdFont('DejaVu Sans Mono\nFira Code\nNoto Color Emoji')).toBe(false)
+  expect(simpleIconFor('a.ts', false, false)).toEqual({ glyph: '●', color: iconFor('a.ts', false, false).color })
+  expect(simpleIconFor('src', true, false).glyph).toBe('■')
+})
+
+test('icons: the set follows the fonts; outline uses line-drawn folders and pages', async () => {
+  expect(iconSetFor('FiraCode Nerd Font', 'Noto Sans Symbols2')).toBe('line')
+  expect(iconSetFor('', 'Noto Sans Symbols2')).toBe('outline')
+  expect(iconSetFor('', '')).toBe('simple')
+  expect(outlineIconFor('src', true, false).glyph).toBe('\u{1F5C0}')
+  expect(outlineIconFor('src', true, true).glyph).toBe('\u{1F5C1}')
+  expect(outlineIconFor('a.ts', false, false).glyph).toBe('\u{1F5CB}')
 })

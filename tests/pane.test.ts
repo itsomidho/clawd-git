@@ -32,7 +32,7 @@ function ok(stdout: string, exitCode = 0) {
 }
 
 // A fake repository at /work/app: one changed file, one new file, two commits.
-function world(on: On) {
+function world(on: On, opts: { diff?: string } = {}) {
   on('session.cwd', () => ({ value: '/work/app' }))
   on('process.run', ($, e) => {
     const args = e.argv.join(' ')
@@ -41,7 +41,7 @@ function world(on: On) {
     if (args.includes('diff --cached --numstat')) return ok('')
     if (args.includes('diff --numstat')) return ok('2\t1\tsrc/a.ts\n')
     if (args.includes('diff --no-index')) return ok(NEW_FILE, 1)
-    if (args.includes('diff HEAD')) return ok(DIFF)
+    if (args.includes('diff HEAD')) return ok(opts.diff ?? DIFF)
     if (args.includes(' log ')) return ok('* \u001fabc1234\u001fHEAD -> main\u001fAdd a\u001fOmid\u001f1 hour ago\n* \u001fdef5678\u001f\u001fFirst\u001fOmid\u001f2 days ago\n')
     if (args.includes('ls-files')) return ok('src/a.ts\nsrc/b.ts\nREADME.md\nnotes.md\n')
     if (args.includes('check-ignore')) return ok('node_modules/\n')
@@ -49,20 +49,18 @@ function world(on: On) {
     return ok('')
   })
   on('fs.list', ($, e) => ({ value: e.path === '/work/app'
-    ? [dir('.git'), dir('src'), dir('node_modules'), file('README.md'), file('notes.md')]
+    ? [dir('.git'), dir('src'), dir('node_modules'), file('README.md'), file('notes.md'), file('a-really-long-file-name-that-runs-past-the-pane-edge.md')]
     : e.path === '/work/app/src' ? [file('a.ts'), file('b.ts')] : [] }))
   on('fs.stat', () => ({ value: { kind: 'file' as const, size: 8, mtimeMs: 1, isLink: false } }))
   on('fs.read', () => ({ value: 'one\ntwo\n' }))
-  on('ui.panes', () => ({ value: [
-    { id: 'git', title: 'Git', isShown: true, isFocused: false, isPlaced: true },
-    { id: 'files', title: 'Files', isShown: true, isFocused: false, isPlaced: true },
-  ] }))
+  on('ui.panes', () => ({ value: [{ id: 'git', title: 'Git', isShown: true, isFocused: false, isPlaced: true }] }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.scroll', () => ({}))
   on('clock.now', () => ({ value: 100_000 }))
   on('ui.render', ($, e) => h($.ui.resolve(e).Box, {}) as RenderElement)
 }
 
+// The side pane, the default placement.
 const PANE = {
   component: 'Pane' as const,
   requestId: 'git',
@@ -74,6 +72,12 @@ const PANE = {
     scroll: { offset: 0, bodyRows: 40 },
     view: {},
   },
+}
+
+// The band above the prompt, under placement: prompt.
+const BAND = {
+  component: 'AbovePrompt' as const,
+  props: { hasSurvey: false, isWorking: false, maxRows: 40, bodyColumns: 70, scroll: { offset: 0, bodyRows: 39 }, view: {} },
 }
 
 test('the pane walks through every tab on terminal and desktop', async ($, on) => {
@@ -94,8 +98,10 @@ test('the pane walks through every tab on terminal and desktop', async ($, on) =
     expect(code?.props.format).toBe('diff')
     expect(String(code?.props.source)).toContain('+new')
 
-    // Back to every change: the tracked diff and the new file.
+    // Back returns to the Changes tab; "diff all" shows the tracked diff and the new file.
     await ui.press({ key: 'back' })
+    expect(await ui.find({ key: 'chg:src/a.ts' })).toBeDefined()
+    await ui.press({ key: 'all' })
     expect((await ui.findAll({ type: 'Code' })).length).toBe(2)
 
     // Commits: the graph, and a commit opens its diff.
@@ -114,26 +120,42 @@ test('the pane walks through every tab on terminal and desktop', async ($, on) =
   }
 })
 
-test('the Files pane reads folders from disk and opens them on press', async ($, on) => {
+test('the Files tab reads folders from disk and opens them on press', async ($, on) => {
   world(on)
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'clawd-git', surface, ...PANE, requestId: 'files', props: { ...PANE.props, title: 'Files' } })
-    // A press on the Git pane's tab runs a refresh, which reads the Files pane too.
-    await $.ui.mount({ plugin: 'clawd-git', surface, ...PANE }).then(git => git.press({ key: 'tab:changes' }))
+    const ui = await $.ui.mount({ plugin: 'clawd-git', surface, ...PANE })
+    await ui.press({ key: 'tab:files' })
 
     expect(await ui.find({ key: 'dir:src' })).toBeDefined()
     expect(await ui.find({ key: 'dir:.git' })).toBe(undefined)
-    expect((await ui.find({ key: 'dir:node_modules' }))).toBeDefined()
+    expect(await ui.find({ key: 'dir:node_modules' })).toBeDefined()
     expect(await ui.find({ key: 'file:src/a.ts' })).toBe(undefined)
     // src holds a change, so it carries the dot.
-    expect((await ui.find({ key: 'dir:src' }))?.text).toMatch(/src +•$/)
+    expect((await ui.find({ key: 'dir:src' }))?.text).toMatch(/src •\s*$/)
 
     await ui.press({ key: 'dir:src' })
     expect((await ui.find({ key: 'file:src/a.ts' }))?.text).toContain('M')
     expect(await ui.find({ key: 'file:src/b.ts' })).toBeDefined()
 
+    // A file opens its diff; Back returns to the tree.
+    await ui.press({ key: 'file:src/a.ts' })
+    expect((await ui.find({ type: 'Code' }))?.props.format).toBe('diff')
+    await ui.press({ key: 'back' })
+    expect(await ui.find({ key: 'file:src/a.ts' })).toBeDefined()
+
     await ui.press({ key: 'dir:src' })
     expect(await ui.find({ key: 'file:src/a.ts' })).toBe(undefined)
+
+    // Search lists matching files across the project; a hit opens its diff.
+    await ui.press({ key: 'search' })
+    await ui.input({ key: 'search-input', text: 'a.ts', kind: 'change' })
+    expect(await ui.find({ key: 'found:src/a.ts' })).toBeDefined()
+    expect(await ui.find({ key: 'found:README.md' })).toBe(undefined)
+    await ui.press({ key: 'found:src/a.ts' })
+    expect((await ui.find({ type: 'Code' }))?.props.format).toBe('diff')
+    await ui.press({ key: 'back' })
+    await ui.press({ key: 'search-close' })
+    expect(await ui.find({ key: 'dir:src' })).toBeDefined()
     await ui.unmount()
   }
 })
@@ -174,4 +196,110 @@ test('the Plan tab draws the clawd-tasks board live', async ($, on) => {
     await ui.press({ key: 'tab:changes' })
     await ui.unmount()
   }
+})
+
+test('rows are windowed under pinned tabs, and long code lines slide sideways', async ($, on) => {
+  const long = 'x'.repeat(200)
+  world(on, { diff: `diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,1 @@\n-old\n+${long}\n` })
+  const small = { ...PANE, props: { ...PANE.props, bodyColumns: 50, scroll: { offset: 0, bodyRows: 11 } } }
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'clawd-git', surface, ...small })
+    await ui.press({ key: 'tab:files' })
+    await ui.press({ key: 'dir:src' })
+    // 4 rows fit under the header frame: node_modules, src, src/a.ts, src/b.ts.
+    expect(await ui.find({ key: 'dir:node_modules' })).toBeDefined()
+    expect(await ui.find({ key: 'file:src/b.ts' })).toBeDefined()
+    expect(await ui.find({ key: 'file:notes.md' })).toBe(undefined)
+    // The tabs stay drawn above the window.
+    expect(await ui.find({ key: 'tab:files' })).toBeDefined()
+
+    await ui.press({ key: 'file:src/a.ts' })
+    await ui.redraw({ ...small.props, scroll: { offset: 0, bodyRows: 21 } })
+    const before = String((await ui.find({ type: 'Code' }))?.props.source)
+    expect(before).toContain('+xxxx')
+    await ui.press({ key: 'right' })
+    const after = String((await ui.find({ type: 'Code' }))?.props.source)
+    expect(after.split('\n').find(line => line.startsWith('+'))?.length).toBe(1 + 200 - 12)
+    await ui.press({ key: 'left' })
+    await ui.press({ key: 'back' })
+    await ui.press({ key: 'dir:src' })
+    await ui.unmount()
+  }
+})
+
+test('any tab slides sideways when a row is wider than the pane', async ($, on) => {
+  world(on)
+  const narrow = { ...PANE, props: { ...PANE.props, bodyColumns: 36 } }
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'clawd-git', surface, ...narrow })
+    await ui.press({ key: 'tab:files' })
+    const key = 'file:a-really-long-file-name-that-runs-past-the-pane-edge.md'
+    expect((await ui.find({ key }))?.text).toContain('a-really')
+    expect(await ui.find({ key: 'right' })).toBeDefined()
+    await ui.press({ key: 'right' })
+    expect((await ui.find({ key }))?.text).not.toContain('a-really')
+    expect((await ui.find({ key: 'right' }))?.text).toContain('col 13')
+    await ui.press({ key: 'left' })
+    expect((await ui.find({ key }))?.text).toContain('a-really')
+    await ui.unmount()
+  }
+})
+
+test('icons fall back to symbols every font has unless set to nerd', async ($, on) => {
+  world(on)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'clawd-git', surface, ...PANE })
+    await ui.press({ key: 'tab:files' })
+    const text = (await ui.find({ key: 'file:README.md' }))?.text ?? ''
+    expect(text).toContain('●')
+    // No private-use glyph (where Nerd Font icons live) anywhere in the row.
+    expect(/[-]/.test(text)).toBe(false)
+    await ui.unmount()
+  }
+})
+
+test('icons set to nerd draw Nerd Font glyphs', { options: { icons: 'nerd' } }, async ($, on) => {
+  world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:files' })
+  expect((await ui.find({ key: 'file:README.md' }))?.text).toContain('')
+  await ui.unmount()
+})
+
+test('icons set to outline draw line folders, pages and chevrons', { options: { icons: 'outline' } }, async ($, on) => {
+  world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:files' })
+  expect((await ui.find({ key: 'file:README.md' }))?.text).toContain('\u{1F5CB}')
+  expect((await ui.find({ key: 'dir:src' }))?.text).toContain('› \u{1F5C0}')
+  await ui.press({ key: 'dir:src' })
+  expect((await ui.find({ key: 'dir:src' }))?.text).toContain('⌄ \u{1F5C1}')
+  expect((await ui.find({ key: 'search' }))?.text).toContain('⌕')
+  await ui.unmount()
+})
+
+test('icons set to line draw Codicons for folders, pages, tabs and toolbar', { options: { icons: 'line' } }, async ($, on) => {
+  world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:files' })
+  expect((await ui.find({ key: 'file:README.md' }))?.text).toContain('')
+  expect((await ui.find({ key: 'dir:src' }))?.text).toContain(' ')
+  // The lit tab carries the statusbar's diamond; the others their icons.
+  expect((await ui.find({ key: 'tab:files' }))?.text).toContain('◆ Files')
+  expect((await ui.find({ key: 'tab:changes' }))?.text).toContain('')
+  expect((await ui.find({ key: 'search' }))?.text).toContain('')
+  await ui.unmount()
+})
+
+test('above the prompt, /git-pane hides and shows the panel', { options: { placement: 'prompt' } }, async ($, on) => {
+  world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...BAND })
+  expect(await ui.find({ key: 'tab:files' })).toBeDefined()
+  await $.command.run({ command: 'git-pane' } as never)
+  await ui.redraw()
+  expect(await ui.find({ key: 'tab:files' })).toBe(undefined)
+  await $.command.run({ command: 'git-pane', args: 'changes' } as never)
+  await ui.redraw()
+  expect(await ui.find({ key: 'chg:src/a.ts' })).toBeDefined()
+  await ui.unmount()
 })

@@ -210,3 +210,42 @@ export function fitPath(path: string, width: number): string {
   if (width <= 2) return path.slice(-width)
   return '…' + path.slice(path.length - width + 1)
 }
+
+// One line of a diff's hunks, with the old and new line numbers it sits at,
+// so any slice of a diff can be drawn again as a hunk of its own.
+export type DiffLine = { kind: 'hunk' | 'add' | 'del' | 'ctx'; text: string; oldAt: number; newAt: number }
+
+export function hunkLines(hunks: string): DiffLine[] {
+  const out: DiffLine[] = []
+  let oldAt = 0
+  let newAt = 0
+  for (const line of hunks.split('\n')) {
+    const head = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/)
+    if (head) {
+      oldAt = Number(head[1])
+      newAt = Number(head[2])
+      out.push({ kind: 'hunk', text: (head[3] ?? '').trim(), oldAt, newAt })
+      continue
+    }
+    if (line.startsWith('\\')) continue
+    const text = line.slice(1).replace(/\t/g, '    ')
+    if (line.startsWith('+')) { out.push({ kind: 'add', text, oldAt, newAt }); newAt++ }
+    else if (line.startsWith('-')) { out.push({ kind: 'del', text, oldAt, newAt }); oldAt++ }
+    else { out.push({ kind: 'ctx', text, oldAt, newAt }); oldAt++; newAt++ }
+  }
+  return out
+}
+
+// A run of diff lines as one hunk: a header that fits them, then the lines,
+// each cut `x` columns in (the +/- mark kept) for scrolling sideways.
+export function hunkOf(lines: readonly DiffLine[], x: number): string {
+  const first = lines[0]
+  if (!first) return ''
+  const olds = lines.filter(one => one.kind !== 'add').length
+  const news = lines.filter(one => one.kind !== 'del').length
+  const mark = { add: '+', del: '-', ctx: ' ', hunk: ' ' } as const
+  return [
+    `@@ -${first.oldAt},${olds} +${first.newAt},${news} @@`,
+    ...lines.map(one => mark[one.kind] + one.text.slice(x)),
+  ].join('\n')
+}
