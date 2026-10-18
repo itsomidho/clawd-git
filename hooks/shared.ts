@@ -178,9 +178,9 @@ export function slid(text: string, natural: number) {
 // The pane is drawn as clawd-statusbar draws its bar: rounded dim frames,
 // parts joined by a dim " · ", plain terminal colors, nothing filled.
 export const DOT = ' · '
-// Rows the pane draws around a page's rows: the header frame (the tabs, a
-// divider, the title line, and its border), and the content frame's border.
-export const PINNED = 7
+// Rows the pane draws around a page's rows, all in one frame: its border, the
+// tabs, a divider, the title line, and a divider under it.
+export const PINNED = 6
 // Frame borders and padding: one cell of border and one of padding a side.
 export const FRAME_X = 4
 // Hover: color alone, never a background block, so text stays readable on

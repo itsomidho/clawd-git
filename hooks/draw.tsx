@@ -173,12 +173,11 @@ function drawPage(
   const extra = page.extra ? 1 : 0
   return (
     <Box flexDirection="column" width={width} height={height} backgroundColor={background}>
-      <Box borderStyle="round" borderDimColor paddingX={1} flexDirection="column" width={width} height={5}>
+      <Box borderStyle="round" borderDimColor paddingX={1} flexDirection="column" width={width} height={room + extra + PINNED}>
         {tabs as never}
         {divider(el, inner, said)}
         {titleRow(el, page, side)}
-      </Box>
-      <Box borderStyle="round" borderDimColor paddingX={1} flexDirection="column" width={width} height={room + extra + 2}>
+        <Text dimColor>{'─'.repeat(Math.max(0, inner))}</Text>
         {page.extra ? <Box height={1} overflow="hidden">{page.extra as never}</Box> : null}
         {blocks.map(block => {
           const first = block.rows[0]!

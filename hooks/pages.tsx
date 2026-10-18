@@ -119,8 +119,7 @@ function rowButtons(el: El, key: string, buttons: { key: string; label: string; 
       {buttons.map(one => (
         <Box key={`${one.key}:box`}>
           <Button key={one.key} plain hover={{ color: 'cyan', underline: true }} onPress={one.onPress}>
-            <Text> </Text>
-            <Text color={one.color}>{one.label}</Text>
+            <Text color={one.color}>{` ${one.label} `}</Text>
           </Button>
         </Box>
       ))}
@@ -310,8 +309,7 @@ export function changesPage(
     { title: 'New', files: files.filter(one => one.kind === 'untracked'), act: { label: 'Stage all', onPress: () => { void stage($, files.filter(one => one.kind === 'untracked').map(one => one.path)) } } },
   ]
   // A staged file with more changes on top shows in Staged with an unstaged mark.
-  groups.filter(group => group.files.length > 0).forEach((group, g) => {
-    if (g > 0) page.rows.push(node(`gap:${group.title}`, ' '))
+  groups.filter(group => group.files.length > 0).forEach(group => {
     page.rows.push(node(`g:${group.title}`, (
       <Box key={`ghead:${group.title}`} flexDirection="row" justifyContent="space-between" height={1} overflow="hidden">
         <Text color="gray" bold>{`${group.title.toUpperCase()}  ${group.files.length}`}</Text>
@@ -326,7 +324,7 @@ export function changesPage(
         ...(isStaged(one) ? [{ key: `unstage:${one.path}`, label: glyph('unstage'), color: 'yellow', onPress: () => { void unstage($, [one.path]) } }] : []),
         ...(one.kind !== 'conflict' ? [{ key: `discard:${one.path}`, label: glyph('discard'), color: 'red', onPress: () => { void askDiscard($, one) } }] : []),
       ]
-      const actionsWidth = buttons.length * 2
+      const actionsWidth = buttons.reduce((n, one) => n + one.label.length + 2, 0)
       page.rows.push(node(`chgrow:${one.path}`, (
         <Box key={`chgline:${one.path}`} flexDirection="row" height={1} overflow="hidden">
           {fileLine(el, `chg:${one.path}`, one.path, width - actionsWidth, () => { void openView($, { kind: 'file', path: one.path }) }, {
@@ -370,7 +368,6 @@ function notesRows(el: El, $: EngineInterface, notes: Note[], width: number): Ro
       </Box>
     )))
   }
-  rows.push(node('notes:gap', ' '))
   return rows
 }
 
@@ -405,7 +402,6 @@ function draftRows(el: El, $: EngineInterface, drafting: Draft, width: number): 
       ))}
     </Box>
   )))
-  rows.push(node('draft:gap', ' '))
   return rows
 }
 
@@ -537,7 +533,8 @@ export function diffPage(
     if (one.source.isCut) page.rows.push(node('srccut', <Text color="gray">{`… only the first ${SOURCE_LINES} lines are shown`}</Text>))
   }
   one.diffs.forEach((file, f) => {
-    if (page.rows.length > 0) page.rows.push(node(`fgap:${f}`, ' '))
+    // A file's own header row sets it apart; one diff of one file needs no gap.
+    if (current.kind === 'file' && page.rows.length > 0) page.rows.push(node(`fgap:${f}`, ' '))
     if (current.kind !== 'file') {
       page.rows.push(node(`dh:${f}`, fileLine(el, `dh:${f}:${file.path}`, file.path, width, () => { void openView($, { kind: 'file', path: file.path }) }, {
         tail: counts(el, file.added, file.removed) as unknown as Node,
