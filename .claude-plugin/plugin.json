@@ -1,0 +1,43 @@
+{
+  "name": "clawd-git",
+  "version": "0.1.0",
+  "description": "A live git side pane: changed files, diffs, the commit graph and the file tree, in tabs",
+  "author": {
+    "name": "Omid Hosseini",
+    "url": "https://github.com/itsomidho"
+  },
+  "homepage": "https://github.com/itsomidho/clawd-git",
+  "repository": "https://github.com/itsomidho/clawd-git",
+  "license": "MIT",
+  "keywords": [
+    "git",
+    "diff",
+    "pane",
+    "commits",
+    "files"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "autoOpen": {
+      "type": "boolean",
+      "title": "Open on start",
+      "description": "Open the git pane when a session starts (it docks beside the conversation in fullscreen, on a terminal 144 columns or wider).",
+      "default": true
+    },
+    "refreshSeconds": {
+      "type": "number",
+      "title": "Refresh every (seconds)",
+      "description": "How often the pane re-reads git while it is shown. It also refreshes right after each file edit or shell command.",
+      "default": 2
+    },
+    "icons": {
+      "type": "boolean",
+      "title": "File icons",
+      "description": "Show file-type icons in the Files pane. Needs a Nerd Font in your terminal; turn off if you see empty boxes.",
+      "default": true
+    }
+  },
+  "dependencies": [
+    "clawd-tasks"
+  ]
+}
