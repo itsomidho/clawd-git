@@ -1,5 +1,7 @@
 # clawd-git
 
+[![Latest release](https://img.shields.io/github/v/release/itsomidho/clawd-git?label=release&color=7fbeb3)](https://github.com/itsomidho/clawd-git/releases)
+
 A live git panel for [Claude Code](https://claude.com/claude-code), docked beside the conversation and styled like [clawd-statusbar](https://github.com/itsomidho/clawd-statusbar). It shows the files, the changes and the commit graph as Claude works, marks the files Claude changed, and lets you stage, commit, and ask Claude to review a diff without leaving the session.
 
 ![The panel through one session: Claude's edits marked in Files and Changes, the By Claude filter, a diff with Review, staging, a drafted commit message and the commit graph](docs/demo.gif)
