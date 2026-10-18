@@ -18,7 +18,12 @@ A diff opens over the tab it came from; **Back** returns there. The header stays
 
 ### What Claude changed
 
-Every file Claude writes this session (with Edit, Write, or a shell command) is marked **✦** in Files and Changes. **By Claude** narrows Changes to those files; a `/clear` starts the list over.
+- **This turn**: when Claude starts working on your message, the panel takes a snapshot of the working tree. **This turn** in Changes then shows exactly what Claude changed since your last message, new files included, as one diff. (The snapshot is a git tree object written through a copy of the index: your files, your staged changes and your history are left alone.)
+- Every file Claude writes this session (with Edit, Write, or a shell command) is marked **✦** in Files and Changes. **By Claude** narrows Changes to those files; a `/clear` starts the list over.
+
+### Reviewing Claude's work
+
+Read a diff as you would a pull request. The **+** beside a line opens a note on it; type what you want changed and press Enter. Notes show under their lines (**✎**) and gather in Changes under **Review notes**. **Send review** gives them to Claude in one message, each with its file, line and code, then clears them.
 
 ### Acting on it
 
@@ -27,7 +32,7 @@ Every file Claude writes this session (with Edit, Write, or a shell command) is 
 | **+** **−** **↺** on a row | stage, unstage, discard (discard asks first: it cannot be undone) |
 | **Stage all** / **Unstage all** | on a group's header |
 | **Commit** | drafts a message for what is staged, in the style of your recent commits; then **Commit**, **Again**, **Ask Claude** (hand the draft to Claude to adjust and commit), or **Cancel** |
-| **Review** on a diff, **Explain** on a commit | sends Claude a request to review the changes or explain the commit |
+| **Review** on a diff, **Explain** on a commit | sends Claude a request to review the changes (a file, all of them, or this turn) or explain the commit |
 | **Open** on a file's diff | opens the file in your editor at its first changed line |
 
 ## Install
@@ -44,7 +49,7 @@ For Claude's plan as it works, add [clawd-tasks](https://github.com/itsomidho/cl
 
 ## Use
 
-`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `commits` or `diff` opens it on that tab. Click anything in it, or focus it with ctrl+x tab to move through it by keyboard. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
+`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `commits`, `diff` or `turn` opens it on that tab or view. Click anything in it, or focus it with ctrl+x tab to move through it by keyboard. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
 
 It refreshes right after each edit or shell command of Claude's. In between it asks git for its status every 2 seconds and reads the rest only when something moved, so a quiet repository costs one `git status` per tick.
 

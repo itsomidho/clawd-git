@@ -6,7 +6,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import { forgetSession, noteBashChanges, noteTouched, openView, selectTab } from './actions'
-import { findIconSet, isAnyPaneShown, refresh } from './data'
+import { findIconSet, isAnyPaneShown, refresh, startTurn, updateTurnFiles } from './data'
 import { drawGit } from './draw'
 import { COMMAND, EDITORS, EMPTY_REPO, OLD_FILES_PANE, PANE, TABS, WRITERS, ctx, relativeTo } from './shared'
 
@@ -30,7 +30,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: COMMAND,
       description: 'Show or hide the git panel: files, changes and commits',
-      argumentHint: '[files | changes | commits | diff | close]',
+      argumentHint: '[files | changes | commits | diff | turn | close]',
     }).catch(() => {})
     ctx.written.clear()
     ctx.needsLog = true
@@ -56,13 +56,27 @@ export const register: Register = (on, options) => {
     return started
   })
 
+  // A turn of the main conversation begins: remember the tree, before Claude
+  // changes anything, so "This turn" can show exactly what it changed.
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) await startTurn($, e.turnId).catch(() => {})
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // The turn ended: settle the list of files it changed.
+  on('turn.complete', async ($, e, next) => {
+    const done = await next(e)
+    if (e.agentId === undefined) void updateTurnFiles($).catch(() => {})
+    return done
+  }).catch(($, e, next) => next(e))
+
   // A /clear starts a new conversation: what Claude changed goes with the old one.
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') await forgetSession($)
     return next(e)
   })
 
-  on('command.run', { command: COMMAND }, async ($, e) => {
+  on('command.run', { command: 'git-pane' }, async ($, e) => {
     const arg = String(e.args ?? '').trim().toLowerCase()
     const pick = TABS.find(one => one.id === arg)
     // Bare /git-pane toggles; a tab name always shows it on that tab.
@@ -77,6 +91,7 @@ export const register: Register = (on, options) => {
       if (!opened.isPlaced) return { text: `The git panel is waiting for room: ${opened.reason}` }
     }
     if (arg === 'diff') await openView($, { kind: 'all' })
+    else if (arg === 'turn') await openView($, { kind: 'turn' })
     else if (pick) await selectTab($, pick.id)
     else void refresh($)
     return { text: 'Git panel shown.' }
@@ -98,6 +113,7 @@ export const register: Register = (on, options) => {
       if (tool === 'Bash') ctx.needsLog = true
       await refresh($)
       if (before && before.root !== '') await noteBashChanges($, before, await read($, repo))
+      await updateTurnFiles($)
     })().catch(() => {})
     return result
   }).catch(($, e, next) => next(e))
@@ -116,7 +132,7 @@ export const register: Register = (on, options) => {
   })
 
   // The side pane: docked beside the conversation (the default placement).
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+  on('ui.render', { component: 'Pane', requestId: 'git' }, async ($, e) => {
     const el = $.ui.resolve(e)
     return drawGit($, el, e.props.bodyColumns, e.props.scroll?.bodyRows ?? 30, id => { void selectTab($, id) })
   })

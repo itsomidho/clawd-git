@@ -36,9 +36,10 @@ export type TreeRow = {
   isLoading: boolean
 }
 
-// What the Diff tab shows: every change, one file, or one commit.
+// What the Diff tab shows: every change, this turn's changes, one file, or one commit.
 export type View =
   | { kind: 'all' }
+  | { kind: 'turn' }
   | { kind: 'file'; path: string }
   | { kind: 'commit'; hash: string }
 
@@ -72,6 +73,14 @@ export type Confirm = { kind: 'discard'; path: string; how: 'clean' | 'remove' |
 // A commit message being drafted for what is staged.
 export type Draft = { state: 'writing' | 'ready' | 'error'; text: string }
 
+// The working tree as it stood when the current turn began: a git tree object,
+// written from a copy of the index, so nothing in the repository changes.
+export type TurnBase = { tree: string; turnId: string; at: number }
+
+// A line of a diff the person wants to tell Claude about.
+export type NoteTarget = { path: string; line: number; side: 'new' | 'old'; code: string }
+export type Note = NoteTarget & { id: string; text: string }
+
 // A one-line note in the panel's title line.
 export type Notice = { text: string; kind: 'ok' | 'error' }
 
@@ -104,6 +113,12 @@ declare module 'claude-code' {
       confirm: Confirm | null
       draft: Draft | null
       notice: Notice | null
+      // This turn: where it began, and the files it has changed so far.
+      turnBase: TurnBase | null
+      turnFiles: string[]
+      // Review notes on diff lines, and the line a note is being written for.
+      notes: Note[]
+      noteDraft: NoteTarget | null
       // The icon set this machine's fonts can draw, found when the session starts.
       iconSet: 'line' | 'nerd' | 'outline' | 'simple'
     }

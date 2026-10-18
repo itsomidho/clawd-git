@@ -42,6 +42,10 @@ const GLYPH = {
   unstage: ['', '', '−', '−'],
   discard: ['', '', '↺', '↺'],
   commit: ['', '', '●', '●'],
+  turn: ['', '', '◷', '◷'],
+  note: ['', '', '✎', '✎'],
+  send: ['', '', '→', '→'],
+  addNote: ['', '', '+', '+'],
 } as const
 
 export type GlyphName = keyof typeof GLYPH
@@ -119,7 +123,7 @@ export function isNew(key: string, value: unknown) {
 }
 
 export function viewKey(one: View) {
-  return one.kind === 'all' ? 'all' : one.kind === 'file' ? `file:${one.path}` : `commit:${one.hash}`
+  return one.kind === 'all' ? 'all' : one.kind === 'turn' ? 'turn' : one.kind === 'file' ? `file:${one.path}` : `commit:${one.hash}`
 }
 
 export function describe(change: Change) {

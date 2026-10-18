@@ -5,7 +5,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Change, Repo, Tab, View } from '../types'
+import type { Change, Note, NoteTarget, Repo, Tab, View } from '../types'
 import { refresh } from './data'
 import { DRAFT_MODEL, EMPTY_REPO, SEARCH_RESULTS, ctx, git, viewKey } from './shared'
 
@@ -23,6 +23,8 @@ const sessionOnly = atom({ plugin: 'clawd-git', key: 'sessionOnly' } as const, f
 const confirm = atom({ plugin: 'clawd-git', key: 'confirm' } as const, null)
 const draft = atom({ plugin: 'clawd-git', key: 'draft' } as const, null)
 const notice = atom({ plugin: 'clawd-git', key: 'notice' } as const, null)
+const notes = atom({ plugin: 'clawd-git', key: 'notes' } as const, [])
+const noteDraft = atom({ plugin: 'clawd-git', key: 'noteDraft' } as const, null)
 
 // ---------------------------------------------------------------- moving around
 
@@ -209,6 +211,10 @@ export async function askReview($: EngineInterface, current: View) {
     await ask($, `Explain commit ${current.hash} (see \`git show ${current.hash}\`): what it changes, why, and anything risky in it.`, 'Asked Claude to explain the commit.')
     return
   }
+  if (current.kind === 'turn') {
+    await ask($, 'Review the changes you made in your last turn, file by file. Point out bugs, risks and anything worth cleaning up, most important first. Don\'t change any files yet.', 'Asked Claude to review this turn.')
+    return
+  }
   const target = current.kind === 'file' ? `\`${current.path}\` (\`git diff HEAD -- ${current.path}\`)` : 'the working tree (`git diff HEAD` and the untracked files)'
   await ask($, `Review the uncommitted changes in ${target}. Point out bugs, risks and anything worth cleaning up, most important first. Don't change any files yet.`, 'Asked Claude to review the changes.')
 }
@@ -263,6 +269,59 @@ export async function draftToClaude($: EngineInterface) {
   if (!one || one.state !== 'ready') return
   await update($, draft, () => null)
   await ask($, `Commit the staged changes with this message, adjusting it if it misses something:\n\n${one.text}`, 'Asked Claude to commit.')
+}
+
+// ---------------------------------------------------------------- review notes
+
+// A note on one line of a diff, written in the panel, sent to Claude together
+// with the others, as a reviewer's comments on a pull request.
+export async function startNote($: EngineInterface, target: NoteTarget) {
+  await update($, noteDraft, () => target)
+}
+
+export async function cancelNote($: EngineInterface) {
+  await update($, noteDraft, () => null)
+}
+
+export async function saveNote($: EngineInterface, text: string) {
+  const target = await read($, noteDraft)
+  await update($, noteDraft, () => null)
+  if (!target || text.trim() === '') return
+  const id = `${await $.clock.now()}-${Math.round(Math.random() * 1e6)}`
+  await update($, notes, list => [...list, { ...target, id, text: text.trim() }])
+}
+
+export async function removeNote($: EngineInterface, id: string) {
+  await update($, notes, list => list.filter(one => one.id !== id))
+}
+
+export async function clearNotes($: EngineInterface) {
+  await update($, notes, () => [])
+  await update($, noteDraft, () => null)
+}
+
+// The notes as one message: each with its file, line and the code it is on,
+// in file and line order.
+export function reviewText(list: readonly Note[]): string {
+  const sorted = [...list].sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line)
+  const items = sorted.map((one, i) => {
+    const where = `\`${one.path}:${one.line}\`${one.side === 'old' ? ' (a removed line)' : ''}`
+    const code = one.code.trim() === '' ? '' : `\n   > ${one.code.trim()}`
+    return `${i + 1}. ${where}${code}\n   ${one.text}`
+  })
+  return `Here are my review notes on the changes. Please address each one:\n\n${items.join('\n\n')}`
+}
+
+export async function sendReview($: EngineInterface) {
+  const list = await read($, notes)
+  if (list.length === 0) return
+  const sent = await $.prompt.submit({ text: reviewText(list) }).then(() => true).catch(() => false)
+  if (!sent) {
+    await say($, 'Could not send the review to Claude.', 'error')
+    return
+  }
+  await update($, notes, () => [])
+  await say($, `Sent ${list.length} note${list.length === 1 ? '' : 's'} to Claude.`)
 }
 
 // ---------------------------------------------------------------- the editor

@@ -37,6 +37,7 @@ type Seen = { argv: string[][]; stdin: (string | undefined)[]; prompts: string[]
 // A fake repository at /work/app: one changed file, one new file, two commits.
 function world(on: On, opts: { diff?: string; status?: string; staged?: string } = {}): Seen {
   const seen: Seen = { argv: [], stdin: [], prompts: [] }
+  let trees = 0
   on('session.cwd', () => ({ value: '/work/app' }))
   on('prompt.submit', ($, e) => { seen.prompts.push(e.text); return { text: e.text } as never })
   on('model.complete', () => ({ value: { isAnswered: true, text: 'Add the a module', usage: {} } }) as never)
@@ -45,6 +46,11 @@ function world(on: On, opts: { diff?: string; status?: string; staged?: string }
     seen.argv.push([...e.argv])
     seen.stdin.push(e.init?.stdin)
     const args = e.argv.join(' ')
+    // Snapshots of the working tree: each write-tree a new tree.
+    if (args.includes('rev-parse --absolute-git-dir')) return ok('/work/app/.git\n')
+    if (e.argv[1] === 'write-tree') return ok(`tree${++trees}\n`)
+    if (args.includes('diff --name-only tree')) return ok('src/a.ts\n')
+    if (args.includes('diff --no-ext-diff tree')) return ok(DIFF)
     if (e.argv[0] === 'which') return ok(e.argv[1] === 'code' ? '/usr/bin/code\n' : '', e.argv[1] === 'code' ? 0 : 1)
     if (args.includes('rev-parse --show-toplevel')) return ok('/work/app\n')
     if (args.includes('status --porcelain')) return ok(opts.status ?? '## main...origin/main [ahead 1]\n M src/a.ts\n?? notes.md\n')
@@ -381,5 +387,46 @@ test('a Plan tab left open by 0.2 falls back to Files', async ($, on) => {
     : next(e)) as never)
   const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
   expect((await ui.find({ key: 'tab:files' }))?.text).toContain('◆ Files')
+  await ui.unmount()
+})
+
+test('a note on a diff line goes to Claude with its file, line and code', async ($, on) => {
+  const seen = world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:changes' })
+  await ui.press({ key: 'chg:src/a.ts' })
+  // The + beside "+new" (the hunk header is row 0, then keep, old, new).
+  await ui.press({ key: 'note:dl:0:3' })
+  expect(await ui.find({ key: 'note-input' })).toBeDefined()
+  await ui.input({ key: 'note-input', text: 'handle an empty cart' })
+  expect(await ui.find({ key: 'note-input' })).toBe(undefined)
+  expect(await ui.find({ text: /handle an empty cart/ })).toBeDefined()
+  // The line now shows it has a note; the toolbar offers to send.
+  expect((await ui.find({ key: 'note:dl:0:3' }))?.text).toContain('\u270e')
+  expect((await ui.find({ key: 'send-review' }))?.text).toContain('Send review 1')
+  // Changes lists it too.
+  await ui.press({ key: 'back' })
+  expect(await ui.find({ key: 'notes-send' })).toBeDefined()
+  await ui.press({ key: 'notes-send' })
+  expect(seen.prompts[0]).toContain('`src/a.ts:2`')
+  expect(seen.prompts[0]).toContain('> new')
+  expect(seen.prompts[0]).toContain('handle an empty cart')
+  expect(await ui.find({ key: 'notes-send' })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('this turn shows what changed since the turn began', async ($, on) => {
+  world(on)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }) as never)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:changes' })
+  expect(await ui.find({ key: 'turn' })).toBe(undefined)
+  await $.turn.start({ text: 'Fix the cart', turnId: 't1' } as never)
+  await $.tool.call({ tool: 'Edit', file_path: '/work/app/src/a.ts', old_string: 'old', new_string: 'new' } as never)
+  await ui.press({ key: 'tab:changes' })
+  expect((await ui.find({ key: 'turn' }))?.text).toContain('This turn 1')
+  await ui.press({ key: 'turn' })
+  expect(await ui.find({ text: /1 file changed since your last message/ })).toBeDefined()
+  expect(String((await ui.find({ type: 'Code' }))?.props.source)).toContain('+new')
   await ui.unmount()
 })

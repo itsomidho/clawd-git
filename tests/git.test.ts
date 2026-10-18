@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { fsTreeRows, hunkLines, hunkOf, parseLog, parseNumstat, parseStatus, sortEntries, splitDiff } from '../hooks/git'
 import { hasNerdFont, iconFor, iconSetFor, outlineIconFor, simpleIconFor } from '../hooks/icons'
+import { reviewText } from '../hooks/actions'
 
 test('status: branch, ahead/behind, kinds and renames', async () => {
   const out = parseStatus([
@@ -117,4 +118,14 @@ test('icons: the set follows the fonts; outline uses line-drawn folders and page
   expect(outlineIconFor('src', true, false).glyph).toBe('\u{1F5C0}')
   expect(outlineIconFor('src', true, true).glyph).toBe('\u{1F5C1}')
   expect(outlineIconFor('a.ts', false, false).glyph).toBe('\u{1F5CB}')
+})
+
+test('review notes read as one message, in file and line order', async () => {
+  const text = reviewText([
+    { id: '2', path: 'b.ts', line: 9, side: 'new', code: 'return x', text: 'name this better' },
+    { id: '1', path: 'a.ts', line: 4, side: 'old', code: '  const y = 1', text: 'why was this removed?' },
+  ])
+  expect(text.startsWith('Here are my review notes on the changes.')).toBe(true)
+  expect(text.indexOf('`a.ts:4`') < text.indexOf('`b.ts:9`')).toBe(true)
+  expect(text).toContain('`a.ts:4` (a removed line)\n   > const y = 1\n   why was this removed?')
 })

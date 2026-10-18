@@ -24,6 +24,8 @@ const log = atom({ plugin: 'clawd-git', key: 'log' } as const, [])
 const listing = atom({ plugin: 'clawd-git', key: 'listing' } as const, {})
 const filesRoot = atom({ plugin: 'clawd-git', key: 'filesRoot' } as const, '')
 const openDirs = atom({ plugin: 'clawd-git', key: 'openDirs' } as const, [])
+const turnBase = atom({ plugin: 'clawd-git', key: 'turnBase' } as const, null)
+const turnFiles = atom({ plugin: 'clawd-git', key: 'turnFiles' } as const, [])
 
 // Whether the panel is on screen: the side pane shown, or the band's panel up.
 export async function isAnyPaneShown($: EngineInterface) {
@@ -86,6 +88,61 @@ async function linesOf($: EngineInterface, path: string): Promise<number> {
   return lines
 }
 
+// ---------------------------------------------------------------- snapshots
+
+// The repository's top folder, or '' outside one.
+export async function repoRoot($: EngineInterface): Promise<string> {
+  return topOf($)
+}
+
+// The working tree as it stands, as a git tree object: tracked and new files,
+// ignored ones left out. Written through a copy of the index, so git's own
+// index, the files and the history are untouched; a copy keeps git's stat
+// cache, so only files changed since the last `git add` are read.
+let snapshots = 0
+export async function snapshotTree($: EngineInterface, root: string): Promise<string | undefined> {
+  const dir = await git($, root, ['rev-parse', '--absolute-git-dir']).catch(() => undefined)
+  if (!dir || dir.exitCode !== 0) return undefined
+  const gitDir = dir.stdout.trim()
+  const index = `${gitDir}/clawd-git-snapshot-${++snapshots}.index`
+  try {
+    const hasIndex = await $.fs.stat(`${gitDir}/index`).then(() => true).catch(() => false)
+    if (hasIndex) await $.process.run(['cp', `${gitDir}/index`, index], { timeoutMs: 15_000 })
+    const env = { GIT_INDEX_FILE: index }
+    const add = await $.process.run(['git', 'add', '-A'], { cwd: root, env, timeoutMs: 120_000 })
+    if (add.exitCode !== 0) return undefined
+    const tree = await $.process.run(['git', 'write-tree'], { cwd: root, env, timeoutMs: 30_000 })
+    return tree.exitCode === 0 ? tree.stdout.trim() : undefined
+  } catch {
+    return undefined
+  } finally {
+    await $.process.run(['rm', '-f', index], { timeoutMs: 5000 }).catch(() => undefined)
+  }
+}
+
+// A new turn of Claude's begins: remember the tree as it stands.
+export async function startTurn($: EngineInterface, turnId: string) {
+  const root = await topOf($)
+  if (root === '') return
+  const tree = await snapshotTree($, root)
+  if (!tree) return
+  const at = await $.clock.now()
+  await update($, turnBase, () => ({ tree, turnId, at }))
+  await update($, turnFiles, () => [])
+}
+
+// The files this turn has changed so far: the start's tree against now's.
+export async function updateTurnFiles($: EngineInterface) {
+  const base = await read($, turnBase)
+  const root = await topOf($)
+  if (!base || root === '') return
+  const now = await snapshotTree($, root)
+  if (!now) return
+  const out = await git($, root, ['diff', '--name-only', base.tree, now]).catch(() => undefined)
+  const files = (out?.stdout ?? '').split('\n').filter(Boolean)
+  if (isNew('turnFiles', files)) await update($, turnFiles, () => files)
+}
+
 // ---------------------------------------------------------------- diffs
 
 export async function workingDiff($: EngineInterface, root: string, path?: string): Promise<string> {
@@ -132,6 +189,21 @@ async function readShown($: EngineInterface, state: Repo, one: View): Promise<Sh
   const of = viewKey(one)
   const root = state.root
   if (root === '') return { ...EMPTY_SHOWN, of }
+  if (one.kind === 'turn') {
+    const base = await read($, turnBase)
+    if (!base) return { ...EMPTY_SHOWN, of, title: 'This turn', detail: 'No turn has started since the panel loaded.' }
+    const now = await snapshotTree($, root)
+    if (!now) return { ...EMPTY_SHOWN, of, title: 'This turn', detail: 'Could not read the working tree.' }
+    const out = await git($, root, ['diff', '--no-ext-diff', base.tree, now])
+    const capped = capDiffs(splitDiff(out.stdout))
+    const n = capped.diffs.length
+    return {
+      of,
+      title: 'This turn',
+      detail: n === 0 ? 'Nothing changed since your last message.' : `${n} file${n === 1 ? '' : 's'} changed since your last message`,
+      ...capped,
+    }
+  }
   if (one.kind === 'commit') {
     const out = await git($, root, ['show', '--no-ext-diff', '--format=%H%x1f%an%x1f%ar%x1f%s%x1f%b%x1e', one.hash])
     if (out.exitCode !== 0) return { ...EMPTY_SHOWN, of, title: one.hash, detail: out.stderr.trim() }

@@ -5,12 +5,12 @@
 import { atom, read } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Notice, Tab } from '../types'
-import { slide } from './actions'
+import type { NoteTarget, Notice, Tab } from '../types'
+import { slide, startNote } from './actions'
 import { hunkOf } from './git'
 import { changesPage, commitsPage, diffPage, filesPage, node, searchPage } from './pages'
 import {
-  EMPTY_REPO, EMPTY_SHOWN, FRAME_X, HOVER_ACCENT, PINNED, SIDE_STEP, TABS, ctx, glyph,
+  CLAUDE_COLOR, EMPTY_REPO, EMPTY_SHOWN, FRAME_X, HOVER_ACCENT, PINNED, SIDE_STEP, TABS, ctx, glyph,
 } from './shared'
 import type { Action, El, Node, Page, Row } from './shared'
 
@@ -33,6 +33,10 @@ const sessionOnly = atom({ plugin: 'clawd-git', key: 'sessionOnly' } as const, f
 const confirm = atom({ plugin: 'clawd-git', key: 'confirm' } as const, null)
 const draft = atom({ plugin: 'clawd-git', key: 'draft' } as const, null)
 const notice = atom({ plugin: 'clawd-git', key: 'notice' } as const, null)
+const turnBase = atom({ plugin: 'clawd-git', key: 'turnBase' } as const, null)
+const turnFiles = atom({ plugin: 'clawd-git', key: 'turnFiles' } as const, [])
+const notes = atom({ plugin: 'clawd-git', key: 'notes' } as const, [])
+const noteDraft = atom({ plugin: 'clawd-git', key: 'noteDraft' } as const, null)
 
 function tabRow(el: El, lit: Tab, badges: Partial<Record<Tab, string>>, onTab: (id: Tab) => void) {
   const { Box, Text, Button } = el
@@ -107,6 +111,39 @@ function codeRun(el: El, rows: Row[], x: number) {
   return <Code source={hunkOf(lines, x)} path={first.kind === 'diff' ? first.path : undefined} format="diff" wrap="truncate-end" />
 }
 
+// The line a code row stands for, as a note names it.
+function targetOf(row: Row): NoteTarget | undefined {
+  if (row.kind === 'source') return { path: row.path, line: row.no, side: 'new', code: row.text }
+  if (row.kind === 'diff') {
+    const side = row.line.kind === 'del' ? 'old' : 'new'
+    return { path: row.path, line: side === 'old' ? row.line.oldAt : row.line.newAt, side, code: row.line.text }
+  }
+  return undefined
+}
+
+const noteKey = (one: { path: string; side: string; line: number }) => `${one.path}|${one.side}|${one.line}`
+
+// The column left of a run of code: + to write a note on a line, ✎ where one is.
+function noteGutter(el: El, rows: Row[], noted: Set<string>, onNote: (target: NoteTarget) => void) {
+  const { Box, Text, Button } = el
+  return (
+    <Box flexDirection="column" width={2} flexShrink={0}>
+      {rows.map(row => {
+        const target = targetOf(row)
+        if (!target) return <Text key={`gut:${row.key}`}>{'  '}</Text>
+        const has = noted.has(noteKey(target))
+        return (
+          <Box key={`gutbox:${row.key}`} height={1}>
+            <Button key={`note:${row.key}`} plain hover={{ color: 'cyan' }} onPress={() => onNote(target)}>
+              <Text color={has ? CLAUDE_COLOR : 'gray'} dimColor={!has}>{(has ? glyph('note') : glyph('addNote')) + ' '}</Text>
+            </Button>
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
+
 // The slim bar beside the window: a thumb where the window is.
 export function barCells(total: number, room: number, offset: number): boolean[] {
   if (total <= room) return Array.from({ length: room }, () => false)
@@ -117,7 +154,7 @@ export function barCells(total: number, room: number, offset: number): boolean[]
 
 function drawPage(
   el: El, page: Page, offset: number, room: number, x: number, width: number, height: number,
-  side: Action[], tabs: Node, said: Notice | null,
+  side: Action[], tabs: Node, said: Notice | null, noted: Set<string>, onNote: (target: NoteTarget) => void,
 ) {
   const { Box, Text } = el
   const visible = page.rows.slice(offset, offset + room)
@@ -145,10 +182,12 @@ function drawPage(
         {page.extra ? <Box height={1} overflow="hidden">{page.extra as never}</Box> : null}
         {blocks.map(block => {
           const first = block.rows[0]!
-          const content = first.kind === 'node' ? first.node : codeRun(el, block.rows, x)
+          const isCode = first.kind !== 'node'
+          const content = isCode ? codeRun(el, block.rows, x) : first.node
           return (
             <Box key={`blk:${first.key}`} flexDirection="row" height={block.rows.length} overflow="hidden">
-              <Box width={inner - 2} height={block.rows.length} overflow="hidden" flexDirection="column">{content as never}</Box>
+              {isCode ? noteGutter(el, block.rows, noted, onNote) : null}
+              <Box width={inner - 2 - (isCode ? 2 : 0)} height={block.rows.length} overflow="hidden" flexDirection="column">{content as never}</Box>
               <Text> </Text>
               {hasBar && (
                 <Box flexDirection="column" width={1}>
@@ -173,8 +212,9 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
   const width = Math.max(24, columns)
   // Inside the frames, less the scrollbar and its gap.
   const inner = width - FRAME_X - 2
-  const [stored, storedBack, state, offsets, x, claude, said] = await Promise.all([
+  const [stored, storedBack, state, offsets, x, claude, said, notesList, writingNote, base, changedThisTurn] = await Promise.all([
     read($, tab), read($, back), read($, repo), read($, scrollY), read($, scrollX), read($, touched), read($, notice),
+    read($, notes), read($, noteDraft), read($, turnBase), read($, turnFiles),
   ])
   // A tab this version no longer has (0.2's Plan) falls back to Files.
   const isKnown = (one: Tab) => one === 'diff' || TABS.some(each => each.id === one)
@@ -205,8 +245,8 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
     ] }
   } else if (current === 'changes') {
     const [isSessionOnly, asked, drafting] = await Promise.all([read($, sessionOnly), read($, confirm), read($, draft)])
-    page = changesPage(el, $, state, claude, isSessionOnly, asked, drafting, inner)
-  } else if (current === 'diff') page = diffPage(el, $, await read($, shown), await read($, view), inner)
+    page = changesPage(el, $, state, claude, isSessionOnly, asked, drafting, { files: changedThisTurn, isOn: base !== null }, notesList, inner)
+  } else if (current === 'diff') page = diffPage(el, $, await read($, shown), await read($, view), notesList, writingNote, inner)
   else page = commitsPage(el, $, await read($, log), inner)
 
   // Anything wider than the panel slides sideways with ◀ ▶.
@@ -221,5 +261,6 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
   const room = height - PINNED - (page.extra ? 1 : 0)
   const offset = Math.min(Math.max(0, page.rows.length - room), Math.max(0, offsets[page.key] ?? 0))
   ctx.lastPage = { key: page.key, total: page.rows.length, room }
-  return drawPage(el, page, offset, room, x, width, height, side, tabs, said)
+  const noted = new Set(notesList.map(noteKey))
+  return drawPage(el, page, offset, room, x, width, height, side, tabs, said, noted, target => { void startNote($, target) })
 }

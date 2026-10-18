@@ -3,11 +3,11 @@
 
 import type { EngineInterface } from 'claude-code'
 
-import type { Change, Confirm, Draft, Entry, LogRow, Repo, Shown, Touch, View } from '../types'
+import type { Change, Confirm, Draft, Entry, LogRow, Note, NoteTarget, Repo, Shown, Touch, View } from '../types'
 import {
-  askDiscard, askReview, cancelConfirm, closeSearch, collapseAll, commitDraft, confirmDiscard, draftCommit,
-  draftToClaude, dropDraft, goBack, openInEditor, openSearch, openView, reload, search, stage, toggleDir,
-  toggleSessionOnly, unstage,
+  askDiscard, askReview, cancelConfirm, cancelNote, clearNotes, closeSearch, collapseAll, commitDraft,
+  confirmDiscard, draftCommit, draftToClaude, dropDraft, goBack, openInEditor, openSearch, openView, reload,
+  removeNote, saveNote, search, sendReview, stage, toggleDir, toggleSessionOnly, unstage,
 } from './actions'
 import { fit, fitPath, fsTreeRows, hunkLines } from './git'
 import { iconFor, lineIconFor, outlineIconFor, simpleIconFor } from './icons'
@@ -248,7 +248,7 @@ function hasUnstaged(one: Change) {
 
 export function changesPage(
   el: El, $: EngineInterface, state: Repo, touched: Record<string, Touch>, isSessionOnly: boolean,
-  asked: Confirm | null, drafting: Draft | null, width: number,
+  asked: Confirm | null, drafting: Draft | null, turn: { files: string[]; isOn: boolean }, notes: Note[], width: number,
 ): Page {
   const { Box, Text } = el
   const byClaude = state.files.filter(one => touched[one.path] !== undefined)
@@ -266,6 +266,13 @@ export function changesPage(
       { text: files.length > 0 ? `+${added} −${removed}` : '', color: 'green' },
     ]),
     actions: [
+      // What Claude changed since your last message, as one diff.
+      ...(turn.isOn && turn.files.length > 0
+        ? [{ key: 'turn', label: glyph('turn'), word: `This turn ${turn.files.length}`, color: CLAUDE_COLOR, onPress: () => { void openView($, { kind: 'turn' }) } }]
+        : []),
+      ...(notes.length > 0
+        ? [{ key: 'send-review', label: glyph('send'), word: `Send review ${notes.length}`, color: CLAUDE_COLOR, onPress: () => { void sendReview($) } }]
+        : []),
       // Claude's files: the filter, with how many there are.
       ...(byClaude.length > 0 || isSessionOnly
         ? [{ key: 'session', label: glyph('claude'), word: isSessionOnly ? 'All files' : `By Claude ${byClaude.length}`, color: CLAUDE_COLOR, onPress: () => { void toggleSessionOnly($) } }]
@@ -289,6 +296,8 @@ export function changesPage(
   }
   // The commit message being drafted for what is staged.
   if (drafting) draftRows(el, $, drafting, width).forEach(row => page.rows.push(row))
+  // The review notes waiting to go to Claude.
+  if (notes.length > 0) notesRows(el, $, notes, width).forEach(row => page.rows.push(row))
   if (files.length === 0) {
     page.rows.push(node('clean', <Text color="gray">{isSessionOnly ? 'Claude has not changed any file that still differs.' : 'No changes. The working tree is clean.'}</Text>))
     return page
@@ -332,6 +341,36 @@ export function changesPage(
     }
   })
   return page
+}
+
+// The review notes, each with where it is, and Send review / Clear.
+function notesRows(el: El, $: EngineInterface, notes: Note[], width: number): Row[] {
+  const { Box, Text, Button } = el
+  const rows: Row[] = [node('notes:head', (
+    <Box key="notes:headbox" flexDirection="row" justifyContent="space-between" height={1} overflow="hidden">
+      <Text color={CLAUDE_COLOR} bold>{`${glyph('note')} REVIEW NOTES  ${notes.length}`}</Text>
+      {rowButtons(el, 'notes:acts', [
+        { key: 'notes-send', label: 'Send review', color: CLAUDE_COLOR, onPress: () => { void sendReview($) } },
+        { key: 'notes-clear', label: 'Clear', color: 'gray', onPress: () => { void clearNotes($) } },
+      ])}
+    </Box>
+  ))]
+  for (const one of notes) {
+    const where = `${one.path.split('/').pop()}:${one.line}`
+    rows.push(node(`note:${one.id}`, (
+      <Box key={`notebox:${one.id}`} flexDirection="row" height={1} overflow="hidden">
+        <Box key={`notego:${one.id}`} flexGrow={1} overflow="hidden">
+          <Button key={`noteopen:${one.id}`} plain hover={HOVER} onPress={() => { void openView($, { kind: 'file', path: one.path }) }}>
+            <Text color="cyan">{'  ' + where}</Text>
+            <Text>{' ' + fit(one.text, Math.max(8, width - where.length - 8))}</Text>
+          </Button>
+        </Box>
+        {rowButtons(el, `noterm:${one.id}`, [{ key: `note-remove:${one.id}`, label: glyph('close'), color: 'gray', onPress: () => { void removeNote($, one.id) } }])}
+      </Box>
+    )))
+  }
+  rows.push(node('notes:gap', ' '))
+  return rows
 }
 
 function draftRows(el: El, $: EngineInterface, drafting: Draft, width: number): Row[] {
@@ -420,14 +459,31 @@ export function commitsPage(el: El, $: EngineInterface, rows: LogRow[], width: n
 
 // ---------------------------------------------------------------- a diff
 
-export function diffPage(el: El, $: EngineInterface, one: Shown, current: View, width: number): Page {
+export function diffPage(
+  el: El, $: EngineInterface, one: Shown, current: View, notes: Note[], draft: NoteTarget | null, width: number,
+): Page {
   const { Box, Text, Button } = el
+  // The notes on one line of this diff, drawn right under it.
+  const notesOn = (path: string, side: 'new' | 'old', line: number) =>
+    notes.filter(note => note.path === path && note.side === side && note.line === line)
+  const noteRow = (note: Note) => node(`dnote:${note.id}`, (
+    <Box key={`dnotebox:${note.id}`} flexDirection="row" height={1} overflow="hidden">
+      <Text color={CLAUDE_COLOR}>{`      ${glyph('note')} `}</Text>
+      <Box key={`dnotetext:${note.id}`} flexGrow={1} overflow="hidden">
+        <Text color={CLAUDE_COLOR} wrap="truncate-end">{note.text}</Text>
+      </Box>
+      {rowButtons(el, `dnoterm:${note.id}`, [{ key: `dnote-remove:${note.id}`, label: glyph('close'), color: 'gray', onPress: () => { void removeNote($, note.id) } }])}
+    </Box>
+  ))
   const isStale = one.of !== viewKey(current)
   // Where the editor opens: the first changed line of a file's diff.
   const firstLine = current.kind === 'file'
     ? (hunkLines(one.diffs[0]?.hunks ?? '').find(line => line.kind !== 'hunk')?.newAt ?? 1)
     : 1
   const actions: Action[] = [
+    ...(notes.length > 0
+      ? [{ key: 'send-review', label: glyph('send'), word: `Send review ${notes.length}`, color: CLAUDE_COLOR, onPress: () => { void sendReview($) } }]
+      : []),
     { key: 'review', label: glyph('claude'), word: current.kind === 'commit' ? 'Explain' : 'Review', color: CLAUDE_COLOR, onPress: () => { void askReview($, current) } },
     ...(current.kind === 'file'
       ? [{ key: 'edit', label: glyph('edit'), word: 'Open', onPress: () => { void openInEditor($, current.path, firstLine) } }]
@@ -449,6 +505,23 @@ export function diffPage(el: El, $: EngineInterface, one: Shown, current: View, 
     rows: [],
   }
   if (isStale) return page
+  // A note being written: its field, pinned under the title.
+  const Input = 'Input' in el ? el.Input : undefined
+  if (draft && Input) {
+    const where = `${draft.path.split('/').pop()}:${draft.line}`
+    page.extra = (
+      <Box flexDirection="row" height={1} overflow="hidden">
+        <Text color={CLAUDE_COLOR}>{`${glyph('note')} ${where} `}</Text>
+        <Box key="noteinputbox" flexGrow={1}>
+          <Input key="note-input" placeholder="Note for Claude, Enter adds it" autoFocus
+            onSubmit={(value: string) => { void saveNote($, value) }} />
+        </Box>
+        <Box key="notecancelbox">
+          <Button key="note-cancel" plain hover={HOVER} onPress={() => { void cancelNote($) }}><Text color="gray"> Cancel</Text></Button>
+        </Box>
+      </Box>
+    )
+  }
   for (const [i, line] of (one.detail ?? '').split('\n').entries()) {
     if (line.trim() !== '') page.rows.push(node(`detail:${i}`, <Text color="gray" wrap="truncate-end">{line}</Text>))
   }
@@ -458,6 +531,7 @@ export function diffPage(el: El, $: EngineInterface, one: Shown, current: View, 
       const clean = text.replace(/\t/g, '    ')
       ctx.widest = Math.max(ctx.widest, clean.length + 10)
       page.rows.push({ kind: 'source', key: `src:${i}`, run: 'src', path: one.source!.path, no: i + 1, text: clean })
+      notesOn(one.source!.path, 'new', i + 1).forEach(note => page.rows.push(noteRow(note)))
     })
     if (one.source.isCut) page.rows.push(node('srccut', <Text color="gray">{`… only the first ${SOURCE_LINES} lines are shown`}</Text>))
   }
@@ -481,6 +555,8 @@ export function diffPage(el: El, $: EngineInterface, one: Shown, current: View, 
       }
       ctx.widest = Math.max(ctx.widest, line.text.length + 10)
       page.rows.push({ kind: 'diff', key: `dl:${f}:${l}`, run: `${f}:${run}`, path: file.path, line })
+      const side = line.kind === 'del' ? 'old' : 'new'
+      notesOn(file.path, side, side === 'old' ? line.oldAt : line.newAt).forEach(note => page.rows.push(noteRow(note)))
     })
     if (file.note) page.rows.push(node(`note:${f}`, <Text color="gray">{file.note}</Text>))
   })
