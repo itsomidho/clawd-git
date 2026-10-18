@@ -422,6 +422,9 @@ test('this turn shows what changed since the turn began', async ($, on) => {
   await ui.press({ key: 'tab:changes' })
   expect(await ui.find({ key: 'turn' })).toBe(undefined)
   await $.turn.start({ text: 'Fix the cart', turnId: 't1' } as never)
+  // Shown as soon as a turn has begun, with no count while nothing changed.
+  await ui.press({ key: 'tab:changes' })
+  expect((await ui.find({ key: 'turn' }))?.text).toMatch(/This turn\s*$/)
   await $.tool.call({ tool: 'Edit', file_path: '/work/app/src/a.ts', old_string: 'old', new_string: 'new' } as never)
   await ui.press({ key: 'tab:changes' })
   expect((await ui.find({ key: 'turn' }))?.text).toContain('This turn 1')

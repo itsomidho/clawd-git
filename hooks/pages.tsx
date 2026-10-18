@@ -267,8 +267,9 @@ export function changesPage(
     ]),
     actions: [
       // What Claude changed since your last message, as one diff.
-      ...(turn.isOn && turn.files.length > 0
-        ? [{ key: 'turn', label: glyph('turn'), word: `This turn ${turn.files.length}`, color: CLAUDE_COLOR, onPress: () => { void openView($, { kind: 'turn' }) } }]
+      // Shown from the first turn on, so it can be found; the count once Claude changed something.
+      ...(turn.isOn
+        ? [{ key: 'turn', label: glyph('turn'), word: turn.files.length > 0 ? `This turn ${turn.files.length}` : 'This turn', color: CLAUDE_COLOR, onPress: () => { void openView($, { kind: 'turn' }) } }]
         : []),
       ...(notes.length > 0
         ? [{ key: 'send-review', label: glyph('send'), word: `Send review ${notes.length}`, color: CLAUDE_COLOR, onPress: () => { void sendReview($) } }]
