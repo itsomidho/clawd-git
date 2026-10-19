@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { On, RenderElement } from 'claude-code'
 
 const DIFF = [
@@ -35,7 +35,7 @@ function ok(stdout: string, exitCode = 0) {
 type Seen = { argv: string[][]; stdin: (string | undefined)[]; prompts: string[] }
 
 // A fake repository at /work/app: one changed file, one new file, two commits.
-function world(on: On, opts: { diff?: string; status?: string; staged?: string } = {}): Seen {
+function world(on: On, opts: { diff?: string; status?: string; staged?: string; isOwnClock?: boolean } = {}): Seen {
   const seen: Seen = { argv: [], stdin: [], prompts: [] }
   let trees = 0
   on('session.cwd', () => ({ value: '/work/app' }))
@@ -72,7 +72,7 @@ function world(on: On, opts: { diff?: string; status?: string; staged?: string }
   on('ui.panes', () => ({ value: [{ id: 'git', title: 'Git', isShown: true, isFocused: false, isPlaced: true }] }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.scroll', () => ({}))
-  on('clock.now', () => ({ value: 100_000 }))
+  if (!opts.isOwnClock) on('clock.now', () => ({ value: 100_000 }))
   on('ui.render', ($, e) => h($.ui.resolve(e).Box, {}) as RenderElement)
   return seen
 }
@@ -431,5 +431,29 @@ test('this turn shows what changed since the turn began', async ($, on) => {
   await ui.press({ key: 'turn' })
   expect(await ui.find({ text: /1 file changed since your last message/ })).toBeDefined()
   expect(String((await ui.find({ type: 'Code' }))?.props.source)).toContain('+new')
+  await ui.unmount()
+})
+
+test('a /clear starts the panel over: "This turn" is gone and git is read again', async ($, on) => {
+  const seen = world(on, { isOwnClock: true })
+  const clock = mock.clock(on)
+  let id = 's1'
+  on('session.id', () => ({ value: id }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }) as never)
+  on('turn.start', ($, e) => ({ turnId: e.turnId }) as never)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await $.turn.start({ text: 'Fix the cart', turnId: 't1' } as never)
+  await ui.press({ key: 'tab:changes' })
+  expect(await ui.find({ key: 'turn' })).toBeDefined()
+
+  // /clear: the session ends, the process goes on under a new id, no session.start.
+  id = 's2'
+  const before = seen.argv.length
+  await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as never)
+  await clock.advance(500)
+  expect(seen.argv.slice(before).some(argv => argv.join(' ').includes('status --porcelain'))).toBe(true)
+  await ui.press({ key: 'tab:changes' })
+  expect(await ui.find({ key: 'turn' })).toBe(undefined)
+  expect(await ui.find({ key: 'chg:src/a.ts' })).toBeDefined()
   await ui.unmount()
 })

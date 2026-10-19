@@ -143,6 +143,17 @@ export async function updateTurnFiles($: EngineInterface) {
   if (isNew('turnFiles', files)) await update($, turnFiles, () => files)
 }
 
+// A new conversation (/clear): forget what was read for the old one, so the
+// next refresh reads and writes everything again, and "This turn" starts over.
+export async function forgetReads($: EngineInterface) {
+  ctx.written.clear()
+  ctx.lastSignature = ''
+  ctx.needsLog = true
+  ctx.ticks = 0
+  await update($, turnBase, () => null)
+  await update($, turnFiles, () => [])
+}
+
 // ---------------------------------------------------------------- diffs
 
 export async function workingDiff($: EngineInterface, root: string, path?: string): Promise<string> {
