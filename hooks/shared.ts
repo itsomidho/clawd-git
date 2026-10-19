@@ -110,6 +110,8 @@ export const ctx = {
   // What git said last time, so a tick where nothing moved does no more work.
   lastSignature: '',
   ticks: 0,
+  // The session the panel last read for; a /clear moves the process to a new one.
+  sessionId: '',
   // Files listed for search, read once each time search opens.
   searchable: [] as string[],
 }

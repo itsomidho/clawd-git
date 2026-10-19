@@ -3,10 +3,10 @@
 // the disk), actions (what a press does), pages (each tab) and draw (frames).
 
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import { forgetSession, noteBashChanges, noteTouched, openView, selectTab } from './actions'
-import { findIconSet, isAnyPaneShown, refresh, startTurn, updateTurnFiles } from './data'
+import { findIconSet, forgetReads, isAnyPaneShown, refresh, startTurn, updateTurnFiles } from './data'
 import { drawGit } from './draw'
 import { COMMAND, EDITORS, EMPTY_REPO, OLD_FILES_PANE, PANE, TABS, WRITERS, ctx, relativeTo } from './shared'
 
@@ -14,6 +14,23 @@ const isShown = atom({ plugin: 'clawd-git', key: 'isShown' } as const, true)
 const detected = atom({ plugin: 'clawd-git', key: 'iconSet' } as const, 'simple')
 const repo = atom({ plugin: 'clawd-git', key: 'repo' } as const, EMPTY_REPO)
 const scrollY = atom({ plugin: 'clawd-git', key: 'scrollY' } as const, {})
+
+// A /clear moves the process to a new session id and fires no session.start,
+// so the panel notices the id change itself: it forgets what it read for the
+// old conversation, shows the pane again if it should be up, and reads it all.
+async function followSession($: EngineInterface) {
+  const id = await $.session.id().catch(() => '')
+  if (id === '' || id === ctx.sessionId) return
+  const isFirst = ctx.sessionId === ''
+  ctx.sessionId = id
+  if (isFirst) return
+  await forgetReads($)
+  if (ctx.config.placement === 'side' && ctx.config.isAutoOpen && (await read($, isShown))) {
+    const panes = await $.ui.panes().catch(() => [])
+    if (!panes.some(pane => pane.id === PANE && pane.isShown)) await $.ui.open({ id: PANE, title: 'Git' }).catch(() => {})
+  }
+  await refresh($)
+}
 
 export const register: Register = (on, options) => {
   ctx.config = {
@@ -35,10 +52,12 @@ export const register: Register = (on, options) => {
     ctx.written.clear()
     ctx.needsLog = true
     ctx.lastSignature = ''
+    ctx.sessionId = await $.session.id().catch(() => '')
     if (ctx.config.icons === 'auto') void findIconSet($).then(found => update($, detected, () => found)).catch(() => {})
     // A tick reads git's status alone, and the rest only when it moved.
     $.clock.every(ctx.config.intervalMs, () => {
       void (async () => {
+        await followSession($)
         if (await isAnyPaneShown($)) await refresh($, false)
       })().catch(() => {})
     })
@@ -70,9 +89,15 @@ export const register: Register = (on, options) => {
     return done
   }).catch(($, e, next) => next(e))
 
-  // A /clear starts a new conversation: what Claude changed goes with the old one.
+  // A /clear starts a new conversation: what Claude changed goes with the old
+  // one. No session.start follows, so check for the new session shortly after
+  // instead of waiting for the next tick.
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear') await forgetSession($)
+    if (e.reason === 'clear') {
+      await forgetSession($)
+      ctx.sessionId = e.sessionId
+      $.clock.after(300, () => { void followSession($).catch(() => {}) })
+    }
     return next(e)
   })
 
