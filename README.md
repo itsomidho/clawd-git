@@ -36,6 +36,7 @@ Read a diff as you would a pull request. The **+** beside a line opens a note on
 | **Commit** | drafts a message for what is staged, in the style of your recent commits; then **Commit**, **Again**, **Ask Claude** (hand the draft to Claude to adjust and commit), or **Cancel** |
 | **Review** on a diff, **Explain** on a commit | sends Claude a request to review the changes (a file, all of them, or this turn) or explain the commit |
 | **Open** on a file's diff | opens the file in your editor at its first changed line |
+| **▷** on a file's row, **Debug** on its diff | with clawd-debug loaded, opens a PHP, Python or JavaScript file in its debugger pane, to set breakpoints and step through it (hidden without it) |
 
 ## Install
 

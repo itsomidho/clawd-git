@@ -6,7 +6,7 @@ import { atom, read } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { NoteTarget, Notice, Tab } from '../types'
-import { slide, startNote } from './actions'
+import { hasDebugger, isDebuggable, slide, startNote } from './actions'
 import { hunkOf } from './git'
 import { changesPage, commitsPage, diffPage, filesPage, node, searchPage } from './pages'
 import {
@@ -230,13 +230,15 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
   ctx.slideX = x
   ctx.widest = 0
   let page: Page
+  // clawd-debug is loaded: debuggable files get a ▷ that opens them in its pane.
+  const canDebug = current !== 'commits' && (await hasDebugger($))
   if (current === 'files') {
     const [root, list, open, shownView, typed, found] = await Promise.all([
       read($, filesRoot), read($, listing), read($, openDirs), read($, view), read($, query), read($, matches),
     ])
     const selected = shownView.kind === 'file' ? shownView.path : undefined
     page = typed === null
-      ? filesPage(el, $, state, root, list, open, selected, claude, inner)
+      ? filesPage(el, $, state, root, list, open, selected, claude, inner, canDebug)
       : searchPage(el, $, state, root, typed, found, selected, claude, inner)
   } else if (state.root === '') {
     page = { key: 'norepo', title: <Text bold>{TABS.find(one => one.id === current)?.label ?? ''}</Text>, actions: [], rows: [
@@ -244,8 +246,11 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
     ] }
   } else if (current === 'changes') {
     const [isSessionOnly, asked, drafting] = await Promise.all([read($, sessionOnly), read($, confirm), read($, draft)])
-    page = changesPage(el, $, state, claude, isSessionOnly, asked, drafting, { files: changedThisTurn, isOn: base !== null }, notesList, inner)
-  } else if (current === 'diff') page = diffPage(el, $, await read($, shown), await read($, view), notesList, writingNote, inner)
+    page = changesPage(el, $, state, claude, isSessionOnly, asked, drafting, { files: changedThisTurn, isOn: base !== null }, notesList, inner, canDebug)
+  } else if (current === 'diff') {
+    const shownView = await read($, view)
+    page = diffPage(el, $, await read($, shown), shownView, notesList, writingNote, inner, shownView.kind === 'file' && canDebug && isDebuggable(shownView.path))
+  }
   else page = commitsPage(el, $, await read($, log), inner)
 
   // Anything wider than the panel slides sideways with ◀ ▶.

@@ -6,8 +6,8 @@ import type { EngineInterface } from 'claude-code'
 import type { Change, Confirm, Draft, Entry, LogRow, Note, NoteTarget, Repo, Shown, Touch, View } from '../types'
 import {
   askDiscard, askReview, cancelConfirm, cancelNote, clearNotes, closeSearch, collapseAll, commitDraft,
-  confirmDiscard, draftCommit, draftToClaude, dropDraft, goBack, openInEditor, openSearch, openView, reload,
-  removeNote, saveNote, search, sendReview, stage, toggleDir, toggleSessionOnly, unstage,
+  confirmDiscard, debugFile, draftCommit, draftToClaude, dropDraft, goBack, openInEditor, openSearch, openView, reload,
+  isDebuggable, removeNote, saveNote, search, sendReview, stage, toggleDir, toggleSessionOnly, unstage,
 } from './actions'
 import { fit, fitPath, fsTreeRows, hunkLines } from './git'
 import { iconFor, lineIconFor, outlineIconFor, simpleIconFor } from './icons'
@@ -132,6 +132,7 @@ function rowButtons(el: El, key: string, buttons: { key: string; label: string; 
 export function filesPage(
   el: El, $: EngineInterface, state: Repo, root: string, list: Record<string, Entry[]>,
   open: string[], selected: string | undefined, touched: Record<string, Touch>, width: number,
+  canDebug = false,
 ): Page {
   const { Box, Text, Button } = el
   const page: Page = {
@@ -171,9 +172,10 @@ export function filesPage(
     // The change mark sits right after the name; a folder holding changes is tinted.
     const mark = style ? ` ${style.mark}` : row.isChanged ? ' •' : ''
     const tint = style ? style.color : row.isChanged ? 'yellow' : undefined
-    const pad = ' '.repeat(Math.max(0, width - lead - label.length - mark.length - (isTouched ? 2 : 0) - (row.isLoading ? 2 : 0)))
+    const debug = canDebug && !row.isDir && isDebuggable(row.path)
+    const pad = ' '.repeat(Math.max(0, width - lead - label.length - mark.length - (isTouched ? 2 : 0) - (row.isLoading ? 2 : 0) - (debug ? 3 : 0)))
     page.rows.push(node(`row:${row.path}`, (
-      <Box key={`row:${row.path}`} height={1} overflow="hidden">
+      <Box key={`row:${row.path}`} flexDirection="row" height={1} overflow="hidden">
         <Button
           key={`${row.isDir ? 'dir' : 'file'}:${row.path}`}
           plain
@@ -189,10 +191,16 @@ export function filesPage(
           <Text color="gray">{row.isLoading ? ' …' : ''}</Text>
           <Text>{pad}</Text>
         </Button>
+        {debug ? rowButtons(el, `fdbg:${row.path}`, [debugButton($, row.path)]) : null}
       </Box>
     )))
   }
   return page
+}
+
+// The ▷ on a file's row: open it in clawd-debug.
+function debugButton($: EngineInterface, path: string) {
+  return { key: `debug:${path}`, label: glyph('debug'), color: 'cyan', onPress: () => { void debugFile($, path) } }
 }
 
 // Search over every file git knows (tracked and new, not ignored).
@@ -248,6 +256,7 @@ function hasUnstaged(one: Change) {
 export function changesPage(
   el: El, $: EngineInterface, state: Repo, touched: Record<string, Touch>, isSessionOnly: boolean,
   asked: Confirm | null, drafting: Draft | null, turn: { files: string[]; isOn: boolean }, notes: Note[], width: number,
+  canDebug = false,
 ): Page {
   const { Box, Text } = el
   const byClaude = state.files.filter(one => touched[one.path] !== undefined)
@@ -320,6 +329,7 @@ export function changesPage(
       const style = KIND_STYLE[one.kind]
       const figures = `+${one.added} −${one.removed} ${style.mark}`
       const buttons = [
+        ...(canDebug && one.kind !== 'deleted' && isDebuggable(one.path) ? [debugButton($, one.path)] : []),
         ...(hasUnstaged(one) ? [{ key: `stage:${one.path}`, label: glyph('stage'), color: 'green', onPress: () => { void stage($, [one.path]) } }] : []),
         ...(isStaged(one) ? [{ key: `unstage:${one.path}`, label: glyph('unstage'), color: 'yellow', onPress: () => { void unstage($, [one.path]) } }] : []),
         ...(one.kind !== 'conflict' ? [{ key: `discard:${one.path}`, label: glyph('discard'), color: 'red', onPress: () => { void askDiscard($, one) } }] : []),
@@ -458,6 +468,8 @@ export function commitsPage(el: El, $: EngineInterface, rows: LogRow[], width: n
 
 export function diffPage(
   el: El, $: EngineInterface, one: Shown, current: View, notes: Note[], draft: NoteTarget | null, width: number,
+  // clawd-debug is loaded: a file can be opened in its debugger.
+  canDebug = false,
 ): Page {
   const { Box, Text, Button } = el
   // The notes on one line of this diff, drawn right under it.
@@ -484,6 +496,9 @@ export function diffPage(
     { key: 'review', label: glyph('claude'), word: current.kind === 'commit' ? 'Explain' : 'Review', color: CLAUDE_COLOR, onPress: () => { void askReview($, current) } },
     ...(current.kind === 'file'
       ? [{ key: 'edit', label: glyph('edit'), word: 'Open', onPress: () => { void openInEditor($, current.path, firstLine) } }]
+      : []),
+    ...(current.kind === 'file' && canDebug
+      ? [{ key: 'debug', label: glyph('debug'), word: 'Debug', onPress: () => { void debugFile($, current.path) } }]
       : []),
   ]
   const page: Page = {

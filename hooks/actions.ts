@@ -219,6 +219,28 @@ export async function askReview($: EngineInterface, current: View) {
   await ask($, `Review the uncommitted changes in ${target}. Point out bugs, risks and anything worth cleaning up, most important first. Don't change any files yet.`, 'Asked Claude to review the changes.')
 }
 
+// ---------------------------------------------------------------- clawd-debug
+
+// clawd-debug (a separate mod) registers /dbg; the Debug action shows only then.
+export async function hasDebugger($: EngineInterface): Promise<boolean> {
+  const commands = await $.command.list().catch(() => [])
+  return commands.some(one => one.name === 'dbg')
+}
+
+// The files clawd-debug can run: PHP, Python, JavaScript.
+export function isDebuggable(path: string): boolean {
+  return /\.(php|phtml|py|pyw|js|mjs|cjs)$/i.test(path)
+}
+
+// Opens the file in clawd-debug's pane: there the person sets breakpoints (b)
+// and has Claude run it with test data (t).
+export async function debugFile($: EngineInterface, path: string) {
+  const root = (await read($, repo)).root || (await $.session.cwd())
+  const full = path.startsWith('/') ? path : `${root}/${path}`
+  const ran = await $.command.run({ command: 'dbg', args: full }).then(() => true).catch(() => false)
+  await say($, ran ? 'Opened in the debugger: click it, b on a line, then t for test data.' : 'Could not open the debugger (is clawd-debug on?).', ran ? 'ok' : 'error')
+}
+
 // ---------------------------------------------------------------- commit message
 
 // Drafts a commit message for what is staged, in the style of the recent

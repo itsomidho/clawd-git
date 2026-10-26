@@ -46,6 +46,7 @@ const GLYPH = {
   note: ['', '', '✎', '✎'],
   send: ['', '', '→', '→'],
   addNote: ['', '', '+', '+'],
+  debug: ['', '', '▷', '▷'],
 } as const
 
 export type GlyphName = keyof typeof GLYPH

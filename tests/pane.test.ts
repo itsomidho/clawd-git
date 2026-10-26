@@ -35,7 +35,7 @@ function ok(stdout: string, exitCode = 0) {
 type Seen = { argv: string[][]; stdin: (string | undefined)[]; prompts: string[] }
 
 // A fake repository at /work/app: one changed file, one new file, two commits.
-function world(on: On, opts: { diff?: string; status?: string; staged?: string; isOwnClock?: boolean } = {}): Seen {
+function world(on: On, opts: { diff?: string; status?: string; staged?: string; isOwnClock?: boolean; rootFile?: string } = {}): Seen {
   const seen: Seen = { argv: [], stdin: [], prompts: [] }
   let trees = 0
   on('session.cwd', () => ({ value: '/work/app' }))
@@ -65,7 +65,7 @@ function world(on: On, opts: { diff?: string; status?: string; staged?: string; 
     return ok('')
   })
   on('fs.list', ($, e) => ({ value: e.path === '/work/app'
-    ? [dir('.git'), dir('src'), dir('node_modules'), file('README.md'), file('notes.md'), file('a-really-long-file-name-that-runs-past-the-pane-edge.md')]
+    ? [dir('.git'), dir('src'), dir('node_modules'), file('README.md'), file('notes.md'), file('a-really-long-file-name-that-runs-past-the-pane-edge.md'), ...(opts.rootFile ? [file(opts.rootFile)] : [])]
     : e.path === '/work/app/src' ? [file('a.ts'), file('b.ts')] : [] }))
   on('fs.stat', () => ({ value: { kind: 'file' as const, size: 8, mtimeMs: 1, isLink: false } }))
   on('fs.read', () => ({ value: 'one\ntwo\n' }))
@@ -366,6 +366,56 @@ test('a file opens in the editor at its first changed line', async ($, on) => {
   await ui.press({ key: 'chg:src/a.ts' })
   await ui.press({ key: 'edit' })
   expect(seen.argv.some(argv => argv.join(' ') === 'code -g /work/app/src/a.ts:1')).toBe(true)
+  await ui.unmount()
+})
+
+// clawd-debug loaded: its /dbg command is listed, and runs are recorded.
+function withDebugger(on: On) {
+  const commands: { command: string; args?: string }[] = []
+  on('command.list', () => ({ value: [{ name: 'dbg', description: 'Step debugger', source: 'plugin' }] }) as never)
+  on('command.run', ($, e) => { commands.push({ command: e.command, args: e.args }); return { text: 'ok' } as never })
+  return commands
+}
+
+test('with clawd-debug loaded, Debug on a file view opens it in the debugger', async ($, on) => {
+  world(on, { status: '## main\n M src/a.php\n' })
+  const commands = withDebugger(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:changes' })
+  await ui.press({ key: 'chg:src/a.php' })
+  await ui.press({ key: 'debug' })
+  expect(commands).toEqual([{ command: 'dbg', args: '/work/app/src/a.php' }])
+  await ui.unmount()
+})
+
+test('with clawd-debug loaded, debuggable rows in Files and Changes get a ▷', async ($, on) => {
+  world(on, { status: '## main\n M src/a.php\n M src/a.ts\n', rootFile: 'tool.py' })
+  const commands = withDebugger(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  // Files: tool.py has one, README.md has none.
+  await ui.press({ key: 'tab:files' })
+  expect(await ui.find({ key: 'debug:README.md' })).toBeUndefined()
+  await ui.press({ key: 'debug:tool.py' })
+  // Changes: the PHP file has one, the TypeScript file none.
+  await ui.press({ key: 'tab:changes' })
+  expect(await ui.find({ key: 'debug:src/a.ts' })).toBeUndefined()
+  await ui.press({ key: 'debug:src/a.php' })
+  expect(commands).toEqual([
+    { command: 'dbg', args: '/work/app/tool.py' },
+    { command: 'dbg', args: '/work/app/src/a.php' },
+  ])
+  await ui.unmount()
+})
+
+test('without clawd-debug, files have no debug buttons', async ($, on) => {
+  world(on, { status: '## main\n M src/a.php\n' })
+  on('command.list', () => ({ value: [] }) as never)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:changes' })
+  expect(await ui.find({ key: 'debug:src/a.php' })).toBeUndefined()
+  await ui.press({ key: 'chg:src/a.php' })
+  expect(await ui.find({ key: 'debug' })).toBeUndefined()
+  expect(await ui.find({ key: 'edit' })).toBeDefined()
   await ui.unmount()
 })
 
