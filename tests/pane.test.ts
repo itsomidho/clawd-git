@@ -156,8 +156,8 @@ test('the Files tab reads folders from disk and opens them on press', async ($, 
     expect(await ui.find({ key: 'dir:.git' })).toBe(undefined)
     expect(await ui.find({ key: 'dir:node_modules' })).toBeDefined()
     expect(await ui.find({ key: 'file:src/a.ts' })).toBe(undefined)
-    // src holds a change, so it carries the dot.
-    expect((await ui.find({ key: 'dir:src' }))?.text).toMatch(/src •\s*$/)
+    // src holds a change, so it carries the dot in the right-hand column.
+    expect((await ui.find({ key: 'dir:src' }))?.text).toMatch(/src\s+•\s*$/)
 
     await ui.press({ key: 'dir:src' })
     expect((await ui.find({ key: 'file:src/a.ts' }))?.text).toContain('M')
@@ -524,5 +524,23 @@ test('each tab puts the folder on the first header line and the branch on the se
     expect(path?.text).not.toContain('main')
     expect(await ui.find({ type: 'Text', text: / main $/ })).toBeDefined()
   }
+  await ui.unmount()
+})
+
+test('the Files tree lines up git marks on the right and bars the selected file', async ($, on) => {
+  world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:files' })
+  await ui.press({ key: 'dir:src' })
+  const a = (await ui.find({ key: 'file:src/a.ts' }))?.text ?? ''
+  const b = (await ui.find({ key: 'file:src/b.ts' }))?.text ?? ''
+  // Both rows run to the same width: the mark column is at the right edge.
+  expect(a).toMatch(/a\.ts\s+ M$/)
+  expect(a.length).toBe(b.length)
+  // Opening a file selects it: its row gets the margin bar.
+  await ui.press({ key: 'file:src/a.ts' })
+  await ui.press({ key: 'back' })
+  expect((await ui.find({ key: 'file:src/a.ts' }))?.text).toMatch(/^▌/)
+  expect((await ui.find({ key: 'file:src/b.ts' }))?.text).toMatch(/^ /)
   await ui.unmount()
 })

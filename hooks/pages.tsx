@@ -169,11 +169,15 @@ export function filesPage(
     return page
   }
   const changed = new Map(state.files.map(one => [one.path, one]))
+  // Each row: a margin bar for the selected file, tree lines, the chevron, the
+  // icon and the name; on the right, a column of git marks (and the ▷ to debug
+  // a file), so the marks line up down the tree.
+  const right = 2 + (canDebug ? 3 : 0)
   for (const row of fsTreeRows(list, open, new Set(changed.keys()), TREE_ROWS)) {
     // A thin guide per level, as editors draw them.
     const guides = '│ '.repeat(row.depth)
     if (!row.isDir && row.label.startsWith('… ')) {
-      page.rows.push(node(`more:${row.path}`, <Text color="gray">{guides + '  ' + row.label}</Text>))
+      page.rows.push(node(`more:${row.path}`, <Text color="gray" dimColor italic>{' ' + guides + '  ' + row.label}</Text>))
       continue
     }
     const change = row.isDir ? undefined : changed.get(row.path)
@@ -181,14 +185,15 @@ export function filesPage(
     const sel = !row.isDir && row.path === selected
     const isTouched = !row.isDir && touched[row.path] !== undefined
     const ink = sel ? 'cyan' : undefined
-    const lead = guides.length + 2 + (ctx.iconMode === 'off' ? 0 : 2)
-    const room = Math.max(4, width - lead - 5)
-    const label = fit(slid(row.label, lead + row.label.length + 5), room)
-    // The change mark sits right after the name; a folder holding changes is tinted.
-    const mark = style ? ` ${style.mark}` : row.isChanged ? ' •' : ''
+    const lead = 1 + guides.length + 2 + (ctx.iconMode === 'off' ? 0 : 2)
+    const extra = (isTouched ? 2 : 0) + (row.isLoading ? 2 : 0)
+    const room = Math.max(4, width - lead - right - extra - 1)
+    const label = fit(slid(row.label, lead + row.label.length + right), room)
+    // The change mark sits in the right column; a folder holding changes gets a dot and a tint.
+    const mark = style ? style.mark : row.isChanged ? '•' : ''
     const tint = style ? style.color : row.isChanged ? 'yellow' : undefined
     const debug = canDebug && !row.isDir && isDebuggable(row.path)
-    const pad = ' '.repeat(Math.max(0, width - lead - label.length - mark.length - (isTouched ? 2 : 0) - (row.isLoading ? 2 : 0) - (debug ? 3 : 0)))
+    const pad = ' '.repeat(Math.max(1, width - lead - label.length - extra - right))
     page.rows.push(node(`row:${row.path}`, (
       <Box key={`row:${row.path}`} flexDirection="row" height={1} overflow="hidden">
         <Button
@@ -197,16 +202,17 @@ export function filesPage(
           hover={HOVER}
           onPress={() => { void (row.isDir ? toggleDir($, row.path) : openView($, { kind: 'file', path: row.path })) }}
         >
-          <Text color={ink ?? 'gray'} dimColor={!sel}>{guides}</Text>
-          <Text color={ink ?? 'gray'}>{row.isDir ? `${glyph(row.isOpen ? 'open' : 'shut')} ` : '  '}</Text>
+          <Text color={CLAUDE_COLOR} bold>{sel ? '▌' : ' '}</Text>
+          <Text color="gray" dimColor>{guides}</Text>
+          <Text color={ink ?? 'gray'} dimColor={!sel && !row.isOpen}>{row.isDir ? `${glyph(row.isOpen ? 'open' : 'shut')} ` : '  '}</Text>
           {iconText(el, row.label, row.isDir, row.isOpen, row.isIgnored, sel)}
           <Text color={ink ?? tint} bold={sel} dimColor={row.isIgnored && !tint && !sel}>{label}</Text>
-          <Text color={ink ?? tint}>{mark}</Text>
           {claudeMark(el, isTouched)}
           <Text color="gray">{row.isLoading ? ' …' : ''}</Text>
           <Text>{pad}</Text>
+          <Text color={tint} bold>{mark.padStart(2)}</Text>
         </Button>
-        {debug ? rowButtons(el, `fdbg:${row.path}`, [debugButton($, row.path)]) : null}
+        {debug ? rowButtons(el, `fdbg:${row.path}`, [debugButton($, row.path)]) : canDebug ? <Text>{'   '}</Text> : null}
       </Box>
     )))
   }
@@ -215,7 +221,7 @@ export function filesPage(
 
 // The ▷ on a file's row: open it in clawd-debug.
 function debugButton($: EngineInterface, path: string) {
-  return { key: `debug:${path}`, label: glyph('debug'), color: 'cyan', onPress: () => { void debugFile($, path) } }
+  return { key: `debug:${path}`, label: glyph('debug'), color: 'gray', onPress: () => { void debugFile($, path) } }
 }
 
 // Search over every file git knows (tracked and new, not ignored).
