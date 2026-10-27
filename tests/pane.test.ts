@@ -77,6 +77,11 @@ function world(on: On, opts: { diff?: string; status?: string; staged?: string; 
   return seen
 }
 
+// The lit tab's text: the one pill filled with the accent.
+async function litTab(ui: { findAll: (q: { type: string }) => Promise<{ text: string; props: Record<string, unknown> }[]> }) {
+  return (await ui.findAll({ type: 'Text' })).find(one => one.props.backgroundColor === '#d97757')?.text
+}
+
 // Whether a git command was run, by its words after `git -c ... -c ...`.
 function ran(seen: Seen, words: string) {
   return seen.argv.some(argv => argv[0] === 'git' && argv.join(' ').includes(words))
@@ -267,8 +272,8 @@ test('icons set to line draw Codicons for folders, pages, tabs and toolbar', { o
   await ui.press({ key: 'tab:files' })
   expect((await ui.find({ key: 'file:README.md' }))?.text).toContain('')
   expect((await ui.find({ key: 'dir:src' }))?.text).toContain(' ')
-  // The lit tab carries the statusbar's diamond; the others their icons.
-  expect((await ui.find({ key: 'tab:files' }))?.text).toContain('◆ Files')
+  // The lit tab is a pill filled with the accent; every tab carries its icon.
+  expect(await litTab(ui)).toContain('Files')
   expect((await ui.find({ key: 'tab:changes' }))?.text).toContain('')
   expect((await ui.find({ key: 'search' }))?.text).toContain('')
   await ui.unmount()
@@ -436,7 +441,7 @@ test('a Plan tab left open by 0.2 falls back to Files', async ($, on) => {
     ? { value: { value: 'plan', version: 1 } }
     : next(e)) as never)
   const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
-  expect((await ui.find({ key: 'tab:files' }))?.text).toContain('◆ Files')
+  expect(await litTab(ui)).toContain('Files')
   await ui.unmount()
 })
 

@@ -192,3 +192,10 @@ export const HOVER = { color: 'cyan' } as const
 export const HOVER_ACCENT = { color: 'cyan', underline: true } as const
 // Claude's own mark: the files it changed this session.
 export const CLAUDE_COLOR = '#d97757'
+
+// The clawd family's look (shared with clawd-debug): the accent, card frames,
+// and chips (dark text on a colour).
+export const ACCENT = CLAUDE_COLOR
+export const BORDER = '#5c6370'
+export const CHIP_TEXT = '#1e2127'
+export const BRANCH_CHIP = '#c678dd'

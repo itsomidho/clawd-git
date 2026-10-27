@@ -10,7 +10,7 @@ import { hasDebugger, isDebuggable, slide, startNote } from './actions'
 import { hunkOf } from './git'
 import { changesPage, commitsPage, diffPage, filesPage, node, searchPage } from './pages'
 import {
-  CLAUDE_COLOR, EMPTY_REPO, EMPTY_SHOWN, FRAME_X, HOVER_ACCENT, PINNED, SIDE_STEP, TABS, ctx, glyph,
+  ACCENT, BORDER, CHIP_TEXT, CLAUDE_COLOR, ctx, EMPTY_REPO, EMPTY_SHOWN, FRAME_X, glyph, HOVER_ACCENT, PINNED, SIDE_STEP, TABS,
 } from './shared'
 import type { Action, El, Node, Page, Row } from './shared'
 
@@ -47,13 +47,12 @@ function tabRow(el: El, lit: Tab, badges: Partial<Record<Tab, string>>, onTab: (
         const tabIcon = ctx.iconMode === 'nerd' ? one.glyph[0] : ctx.iconMode === 'line' ? one.glyph[1] : ''
         return (
           <Box key={`tabbox:${one.id}`} flexDirection="row">
-            {i > 0 && <Text dimColor>·</Text>}
+            {i > 0 && <Text> </Text>}
+            {/* A pill: the lit tab filled with the accent, its count inside. */}
             <Button key={`tab:${one.id}`} plain hover={HOVER_ACCENT} onPress={() => onTab(one.id)}>
-              <Text> </Text>
-              <Text color={isLit ? 'cyan' : undefined} dimColor={!isLit}>{isLit ? '◆ ' : tabIcon ? tabIcon + ' ' : ''}</Text>
-              <Text color={isLit ? 'cyan' : undefined} bold={isLit} dimColor={!isLit}>{one.label}</Text>
-              {badges[one.id] ? <Text color={isLit ? 'yellow' : undefined} dimColor={!isLit}>{' ' + badges[one.id]}</Text> : null}
-              <Text> </Text>
+              <Text backgroundColor={isLit ? ACCENT : undefined} color={isLit ? CHIP_TEXT : undefined} bold={isLit} dimColor={!isLit}>
+                {` ${tabIcon ? tabIcon + ' ' : ''}${one.label}${badges[one.id] ? ' ' + badges[one.id] : ''} `}
+              </Text>
             </Button>
           </Box>
         )
@@ -73,7 +72,7 @@ function titleRow(el: El, page: Page, side: Action[]) {
           <Box key={`act:${one.key}`} flexDirection="row">
             <Button key={one.key} plain hover={HOVER_ACCENT} onPress={one.onPress}>
               <Text> </Text>
-              <Text color={one.color ?? 'cyan'}>{one.label}</Text>
+              <Text color={one.color ?? ACCENT}>{one.label}</Text>
               {one.word ? <Text dimColor>{' ' + one.word}</Text> : null}
               <Text> </Text>
             </Button>
@@ -173,7 +172,7 @@ function drawPage(
   const extra = page.extra ? 1 : 0
   return (
     <Box flexDirection="column" width={width} height={height} backgroundColor={background}>
-      <Box borderStyle="round" borderDimColor paddingX={1} flexDirection="column" width={width} height={room + extra + PINNED}>
+      <Box borderStyle="round" borderColor={BORDER} paddingX={1} flexDirection="column" width={width} height={room + extra + PINNED}>
         {tabs as never}
         {divider(el, inner, said)}
         {titleRow(el, page, side)}

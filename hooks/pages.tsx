@@ -12,7 +12,7 @@ import {
 import { fit, fitPath, fsTreeRows, hunkLines } from './git'
 import { iconFor, lineIconFor, outlineIconFor, simpleIconFor } from './icons'
 import {
-  CLAUDE_COLOR, DOT, HOVER, LOG_LIMIT, SEARCH_RESULTS, SOURCE_LINES, TREE_ROWS, ctx, glyph, slid, viewKey,
+  ACCENT, BRANCH_CHIP, CHIP_TEXT, CLAUDE_COLOR, ctx, DOT, glyph, HOVER, LOG_LIMIT, SEARCH_RESULTS, slid, SOURCE_LINES, TREE_ROWS, viewKey,
 } from './shared'
 import type { Action, El, Node, Page, Row } from './shared'
 
@@ -23,15 +23,18 @@ export function homePath(path: string) {
   return path.replace(/^\/(home|Users)\/[^/]+/, '~')
 }
 
-// The statusbar's line: parts joined by a dim " · ".
-export function parts(el: El, items: { text: string; color?: string; bold?: boolean; dim?: boolean }[]) {
+// The statusbar's line: parts joined by a dim " · "; a `chip` part is drawn
+// as a chip (dark text on that colour) and needs no dot after it.
+export function parts(el: El, items: { text: string; color?: string; bold?: boolean; dim?: boolean; chip?: string }[]) {
   const { Text } = el
   const shown = items.filter(one => one.text !== '')
   return (
     <Text wrap="truncate-end">
       {shown.map((one, i) => [
-        i > 0 ? <Text dimColor>{DOT}</Text> : null,
-        <Text color={one.color} bold={one.bold} dimColor={one.dim}>{one.text}</Text>,
+        i > 0 ? <Text dimColor>{shown[i - 1]?.chip ? '  ' : DOT}</Text> : null,
+        one.chip
+          ? <Text backgroundColor={one.chip} color={CHIP_TEXT} bold>{` ${one.text} `}</Text>
+          : <Text color={one.color} bold={one.bold} dimColor={one.dim}>{one.text}</Text>,
       ])}
     </Text>
   )
@@ -138,8 +141,8 @@ export function filesPage(
   const page: Page = {
     key: 'files',
     title: parts(el, [
-      { text: homePath(root) || 'Files', color: 'blue' },
-      { text: state.branch ? `${glyph('branch') ? glyph('branch') + ' ' : ''}${state.branch}` : '', color: 'magenta' },
+      { text: homePath(root) || 'Files', color: ACCENT, bold: true },
+      { text: state.branch ? `${glyph('branch') ? glyph('branch') + ' ' : ''}${state.branch}` : '', chip: BRANCH_CHIP },
       { text: state.files.length > 0 ? `●${state.files.length}` : '', color: 'yellow' },
     ]),
     actions: [
@@ -267,7 +270,7 @@ export function changesPage(
   const page: Page = {
     key: isSessionOnly ? 'changes:session' : 'changes',
     title: parts(el, [
-      { text: `${glyph('branch') ? glyph('branch') + ' ' : ''}${state.branch || 'detached'}`, color: 'magenta' },
+      { text: `${glyph('branch') ? glyph('branch') + ' ' : ''}${state.branch || 'detached'}`, chip: BRANCH_CHIP },
       { text: state.ahead > 0 ? `↑${state.ahead}` : '', color: 'green' },
       { text: state.behind > 0 ? `↓${state.behind}` : '', color: 'red' },
       { text: files.length > 0 ? `${files.length} changed` : 'clean', dim: true },
@@ -425,7 +428,7 @@ export function commitsPage(el: El, $: EngineInterface, rows: LogRow[], width: n
   const page: Page = {
     key: 'commits',
     title: parts(el, [
-      { text: 'History', bold: true },
+      { text: 'History', color: ACCENT, bold: true },
       { text: `${commits}${commits >= LOG_LIMIT ? '+' : ''} commits`, dim: true },
       { text: 'all branches', dim: true },
     ]),
