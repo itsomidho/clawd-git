@@ -512,3 +512,17 @@ test('a /clear starts the panel over: "This turn" is gone and git is read again'
   expect(await ui.find({ key: 'chg:src/a.ts' })).toBeDefined()
   await ui.unmount()
 })
+
+test('each tab puts the folder on the first header line and the branch on the second', async ($, on) => {
+  world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  for (const tab of ['files', 'changes', 'commits']) {
+    await ui.press({ key: `tab:${tab}` })
+    const path = await ui.find({ type: 'Text', text: '/work/app' })
+    expect(path?.props.wrap).toBe('truncate-start')
+    // The branch sits on its own line: the path's Text does not hold it.
+    expect(path?.text).not.toContain('main')
+    expect(await ui.find({ type: 'Text', text: / main $/ })).toBeDefined()
+  }
+  await ui.unmount()
+})

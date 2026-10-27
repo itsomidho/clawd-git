@@ -40,6 +40,18 @@ export function parts(el: El, items: { text: string; color?: string; bold?: bool
   )
 }
 
+// The first header line: the repository's folder, whole when it fits; a long
+// one loses its start (…/sites/app), since the end names the project.
+function pathTitle(el: El, root: string, fallback: string) {
+  const { Text } = el
+  return <Text color={ACCENT} bold wrap="truncate-start">{homePath(root) || fallback}</Text>
+}
+
+// The branch as a chip, for the second header line.
+function branchChip(state: Repo) {
+  return { text: `${glyph('branch') ? glyph('branch') + ' ' : ''}${state.branch || 'detached'}`, chip: BRANCH_CHIP }
+}
+
 export function node(key: string, one: Node): Row {
   return { kind: 'node', key, node: one }
 }
@@ -140,10 +152,10 @@ export function filesPage(
   const { Box, Text, Button } = el
   const page: Page = {
     key: 'files',
-    title: parts(el, [
-      { text: homePath(root) || 'Files', color: ACCENT, bold: true },
-      { text: state.branch ? `${glyph('branch') ? glyph('branch') + ' ' : ''}${state.branch}` : '', chip: BRANCH_CHIP },
-      { text: state.files.length > 0 ? `●${state.files.length}` : '', color: 'yellow' },
+    title: pathTitle(el, root, 'Files'),
+    subtitle: parts(el, [
+      branchChip(state),
+      { text: state.files.length > 0 ? `●${state.files.length} changed` : 'clean', color: state.files.length > 0 ? 'yellow' : undefined, dim: state.files.length === 0 },
     ]),
     actions: [
       { key: 'search', label: glyph('search'), word: 'Search', onPress: () => { void openSearch($) } },
@@ -269,8 +281,9 @@ export function changesPage(
   const stagedCount = state.files.filter(isStaged).length
   const page: Page = {
     key: isSessionOnly ? 'changes:session' : 'changes',
-    title: parts(el, [
-      { text: `${glyph('branch') ? glyph('branch') + ' ' : ''}${state.branch || 'detached'}`, chip: BRANCH_CHIP },
+    title: pathTitle(el, state.root, 'Changes'),
+    subtitle: parts(el, [
+      branchChip(state),
       { text: state.ahead > 0 ? `↑${state.ahead}` : '', color: 'green' },
       { text: state.behind > 0 ? `↓${state.behind}` : '', color: 'red' },
       { text: files.length > 0 ? `${files.length} changed` : 'clean', dim: true },
@@ -422,13 +435,14 @@ function draftRows(el: El, $: EngineInterface, drafting: Draft, width: number): 
 
 const GRAPH_COLORS = ['cyan', 'green', 'yellow', 'magenta', 'blue', 'red']
 
-export function commitsPage(el: El, $: EngineInterface, rows: LogRow[], width: number): Page {
+export function commitsPage(el: El, $: EngineInterface, state: Repo, rows: LogRow[], width: number): Page {
   const { Box, Text, Button } = el
   const commits = rows.filter(row => row.hash).length
   const page: Page = {
     key: 'commits',
-    title: parts(el, [
-      { text: 'History', color: ACCENT, bold: true },
+    title: pathTitle(el, state.root, 'History'),
+    subtitle: parts(el, [
+      branchChip(state),
       { text: `${commits}${commits >= LOG_LIMIT ? '+' : ''} commits`, dim: true },
       { text: 'all branches', dim: true },
     ]),

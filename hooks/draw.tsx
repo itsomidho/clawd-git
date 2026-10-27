@@ -169,13 +169,14 @@ function drawPage(
     else blocks.push({ rows: [row], at: i })
   })
   const background = ctx.config.background === 'none' ? undefined : ctx.config.background
-  const extra = page.extra ? 1 : 0
+  const extra = (page.extra ? 1 : 0) + (page.subtitle ? 1 : 0)
   return (
     <Box flexDirection="column" width={width} height={height} backgroundColor={background}>
       <Box borderStyle="round" borderColor={BORDER} paddingX={1} flexDirection="column" width={width} height={room + extra + PINNED}>
         {tabs as never}
         {divider(el, inner, said)}
         {titleRow(el, page, side)}
+        {page.subtitle ? <Box height={1} overflow="hidden">{page.subtitle as never}</Box> : null}
         <Text dimColor>{'─'.repeat(Math.max(0, inner))}</Text>
         {page.extra ? <Box height={1} overflow="hidden">{page.extra as never}</Box> : null}
         {blocks.map(block => {
@@ -250,7 +251,7 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
     const shownView = await read($, view)
     page = diffPage(el, $, await read($, shown), shownView, notesList, writingNote, inner, shownView.kind === 'file' && canDebug && isDebuggable(shownView.path))
   }
-  else page = commitsPage(el, $, await read($, log), inner)
+  else page = commitsPage(el, $, state, await read($, log), inner)
 
   // Anything wider than the panel slides sideways with ◀ ▶.
   const maxX = ctx.widest > inner ? ctx.widest - inner + SIDE_STEP : 0
@@ -261,7 +262,7 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
       ]
     : []
   const height = Math.max(PINNED + 4, rows)
-  const room = height - PINNED - (page.extra ? 1 : 0)
+  const room = height - PINNED - (page.extra ? 1 : 0) - (page.subtitle ? 1 : 0)
   const offset = Math.min(Math.max(0, page.rows.length - room), Math.max(0, offsets[page.key] ?? 0))
   ctx.lastPage = { key: page.key, total: page.rows.length, room }
   const noted = new Set(notesList.map(noteKey))

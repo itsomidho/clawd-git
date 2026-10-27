@@ -166,6 +166,9 @@ export type Page = {
   // Where this page's scroll position is kept.
   key: string
   title: Node
+  // A second header line under the title: the branch and its counts, so a
+  // long path above keeps its whole row.
+  subtitle?: Node
   actions: Action[]
   // A pinned line under the title (the search field, a question, a draft).
   extra?: Node
