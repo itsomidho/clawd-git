@@ -18,6 +18,17 @@ A live git panel for [Claude Code](https://claude.com/claude-code), docked besid
 
 A diff opens over the tab it came from; **Back** returns there. The header stays put while the rows scroll (wheel, PageUp/PageDown, Home/End), and anything wider than the panel slides sideways with ◀ ▶.
 
+The panel is drawn like [clawd-debug](https://github.com/itsomidho/clawd-debug)'s pane: a header card with **Git**, the branch as a chip and how the tree stands (or the latest notice), then a key bar; the tabs as pills; and a card with what the tab shows, titled with its name and folder, with a scrollbar. Every key on the bar is always there, dim when it does not apply, and works as soon as the panel has the keyboard (a click, or ctrl+x tab):
+
+| Key | | Key | |
+|---|---|---|---|
+| `h` | back from a diff | `x` | review the diff, or explain the commit |
+| `f` | search, or end the search | `v` | send your review notes |
+| `z` | collapse the tree | `m` | draft a commit message |
+| `d` | diff all | `o` | open the file in your editor |
+| `t` | this turn | `g` | debug the file (with clawd-debug) |
+| `b` | Claude's files only, or all | `r` | refresh |
+
 ### What Claude changed
 
 - **This turn**: when Claude starts working on your message, the panel takes a snapshot of the working tree. **This turn** in Changes then shows exactly what Claude changed since your last message, new files included, as one diff. (The snapshot is a git tree object written through a copy of the index: your files, your staged changes and your history are left alone.)
@@ -52,7 +63,7 @@ For Claude's plan as it works, add [clawd-tasks](https://github.com/itsomidho/cl
 
 ## Use
 
-`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `commits`, `diff` or `turn` opens it on that tab or view. Click anything in it, or focus it with ctrl+x tab to move through it by keyboard. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
+`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `commits`, `diff` or `turn` opens it on that tab or view. Click anything in it, or focus it with ctrl+x tab to use its keys. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
 
 It refreshes right after each edit or shell command of Claude's. In between it asks git for its status every 2 seconds and reads the rest only when something moved, so a quiet repository costs one `git status` per tick.
 

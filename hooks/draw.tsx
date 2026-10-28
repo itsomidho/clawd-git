@@ -1,18 +1,20 @@
-// Drawing the panel: the header frame (tabs, a divider that carries notices,
-// the title line and toolbar) and the content frame, a window over the page's
-// rows with a slim scrollbar. Diff and source rows are drawn in runs by Code.
+// Drawing the panel as clawd-debug draws its pane: a header card (Git, the
+// branch chip, the tree's state or the latest notice, and a key bar), the tab
+// pills, and a content card titled like clawd-debug's code card: a window over
+// the page's rows with a scrollbar. Diff and source rows are drawn in runs by Code.
 
 import { atom, read } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { NoteTarget, Notice, Tab } from '../types'
+import type { NoteTarget, Notice, Repo, Tab } from '../types'
 import { hasDebugger, isDebuggable, slide, startNote } from './actions'
 import { hunkOf } from './git'
 import { changesPage, commitsPage, diffPage, filesPage, node, searchPage } from './pages'
 import {
-  ACCENT, BORDER, CHIP_TEXT, CLAUDE_COLOR, ctx, EMPTY_REPO, EMPTY_SHOWN, FRAME_X, glyph, HOVER_ACCENT, PINNED, SIDE_STEP, TABS,
+  ACCENT, BORDER, BRANCH_CHIP, CHIP_TEXT, CLAUDE_COLOR, ctx, DOT, EMPTY_REPO, EMPTY_SHOWN, ERR, FRAME_X, glyph, HEADER_ROWS, HOVER_ACCENT, OK,
+  PINNED, SCROLL_THUMB, SCROLL_TRACK, SIDE_STEP, TABS, WARN,
 } from './shared'
-import type { Action, El, Node, Page, Row } from './shared'
+import type { Action, El, GlyphName, Node, Page, Row } from './shared'
 
 const tab = atom({ plugin: 'clawd-git', key: 'tab' } as const, 'files')
 const back = atom({ plugin: 'clawd-git', key: 'back' } as const, 'changes')
@@ -38,22 +40,76 @@ const turnFiles = atom({ plugin: 'clawd-git', key: 'turnFiles' } as const, [])
 const notes = atom({ plugin: 'clawd-git', key: 'notes' } as const, [])
 const noteDraft = atom({ plugin: 'clawd-git', key: 'noteDraft' } as const, null)
 
-function tabRow(el: El, lit: Tab, badges: Partial<Record<Tab, string>>, onTab: (id: Tab) => void) {
+// The tab row between the cards, as clawd-debug draws its tabs: pills, the lit
+// one filled with the accent, each with its count.
+function tabRow(el: El, lit: Tab, badges: Partial<Record<Tab, string>>, info: string, onTab: (id: Tab) => void) {
   const { Box, Text, Button } = el
   return (
     <Box flexDirection="row" height={1} overflow="hidden">
-      {TABS.map((one, i) => {
+      <Text>{'  '}</Text>
+      {TABS.map(one => {
         const isLit = one.id === lit
         const tabIcon = ctx.iconMode === 'nerd' ? one.glyph[0] : ctx.iconMode === 'line' ? one.glyph[1] : ''
         return (
           <Box key={`tabbox:${one.id}`} flexDirection="row">
-            {i > 0 && <Text> </Text>}
-            {/* A pill: the lit tab filled with the accent, its count inside. */}
-            <Button key={`tab:${one.id}`} plain hover={HOVER_ACCENT} onPress={() => onTab(one.id)}>
+            <Button key={`tab:${one.id}`} plain hover={isLit ? undefined : { color: ACCENT }} onPress={() => onTab(one.id)}>
               <Text backgroundColor={isLit ? ACCENT : undefined} color={isLit ? CHIP_TEXT : undefined} bold={isLit} dimColor={!isLit}>
                 {` ${tabIcon ? tabIcon + ' ' : ''}${one.label}${badges[one.id] ? ' ' + badges[one.id] : ''} `}
               </Text>
             </Button>
+            <Text> </Text>
+          </Box>
+        )
+      })}
+      <Text dimColor>{info ? `  ${info}` : ''}</Text>
+    </Box>
+  )
+}
+
+// The header card's key bar: every key always drawn, dim when the page has
+// nothing for it (a button that went away would take the pane's keyboard
+// focus with it), as clawd-debug's step bar.
+type Slot = { id: string; key: string; label: string; icon: GlyphName; row: 1 | 2 }
+const BAR: Slot[] = [
+  { id: 'back', key: 'h', label: 'back', icon: 'back', row: 1 },
+  { id: 'search', key: 'f', label: 'search', icon: 'search', row: 1 },
+  { id: 'collapse', key: 'z', label: 'collapse', icon: 'collapse', row: 1 },
+  { id: 'all', key: 'd', label: 'diff all', icon: 'diffAll', row: 1 },
+  { id: 'turn', key: 't', label: 'turn', icon: 'turn', row: 1 },
+  { id: 'session', key: 'b', label: "Claude's", icon: 'claude', row: 1 },
+  { id: 'review', key: 'x', label: 'review', icon: 'review', row: 2 },
+  { id: 'send-review', key: 'v', label: 'notes', icon: 'send', row: 2 },
+  { id: 'commit', key: 'm', label: 'commit', icon: 'commit', row: 2 },
+  { id: 'edit', key: 'o', label: 'open', icon: 'edit', row: 2 },
+  { id: 'debug', key: 'g', label: 'debug', icon: 'debug', row: 2 },
+  { id: 'refresh', key: 'r', label: 'refresh', icon: 'refresh', row: 2 },
+]
+
+const RENAMED = new Set(['Explain', 'All files', 'End search'])
+
+// A bar icon: none in the plain set, whose glyphs are words.
+function barIcon(name: GlyphName) {
+  return ctx.iconMode === 'simple' || ctx.iconMode === 'off' ? '' : glyph(name)
+}
+
+function barRow(el: El, row: 1 | 2, actions: Action[]) {
+  const { Box, Text, Button } = el
+  return (
+    <Box flexDirection="row" height={1} overflow="hidden">
+      {BAR.filter(one => one.row === row).map(one => {
+        const act = actions.find(each => each.key === one.id)
+        const icon = barIcon(one.icon)
+        // The slot's own word, and the page's count when it gives one; a few
+        // pages name the key otherwise (explain a commit, end a search).
+        const word = act?.word ?? ''
+        const count = /\d+$/.exec(word)?.[0]
+        const label = RENAMED.has(word) ? word.toLowerCase() : `${one.label}${count ? ` ${count}` : ''}`
+        return (
+          <Box key={`barbox:${one.id}`}>
+            <Button key={one.id} hotkey={one.key} plain hover={HOVER_ACCENT} onPress={() => { act?.onPress() }}>
+              <Text dimColor={!act} color={act?.color === CLAUDE_COLOR ? CLAUDE_COLOR : undefined}>{`${icon ? `${icon} ` : ''}${label}`}</Text>
+            </Button>
+            <Text>  </Text>
           </Box>
         )
       })}
@@ -61,14 +117,52 @@ function tabRow(el: El, lit: Tab, badges: Partial<Record<Tab, string>>, onTab: (
   )
 }
 
+// The header card: Git, the branch as a chip, where the tree stands (or the
+// latest notice), and the key bar.
+function headerCard(el: El, state: Repo, said: Notice | null, actions: Action[]) {
+  const { Box, Text } = el
+  const icon = barIcon('git')
+  const branch = state.root === '' ? 'no repository' : `${glyph('branch') ? glyph('branch') + ' ' : ''}${state.branch || 'detached'}`
+  const n = state.files.length
+  const status = said
+    ? <Text color={said.kind === 'error' ? ERR : OK} wrap="truncate-end">{`${said.kind === 'error' ? '✗' : '✓'} ${said.text}`}</Text>
+    : state.root === ''
+      ? <Text dimColor wrap="truncate-end">{state.error ?? 'Looking for a git repository…'}</Text>
+      : (
+          <Text wrap="truncate-end">
+            {n > 0 ? <Text color={WARN}>{`●${n} changed`}</Text> : <Text dimColor>clean</Text>}
+            {state.ahead > 0 ? [<Text dimColor>{DOT}</Text>, <Text color={OK}>{`↑${state.ahead}`}</Text>] : null}
+            {state.behind > 0 ? [<Text dimColor>{DOT}</Text>, <Text color={ERR}>{`↓${state.behind}`}</Text>] : null}
+          </Text>
+        )
+  return (
+    <Box borderStyle="round" borderColor={BORDER} paddingX={1} flexDirection="column" height={HEADER_ROWS}>
+      <Box flexDirection="row" height={1} overflow="hidden">
+        <Text color={ACCENT} bold>{`${icon ? `${icon} ` : ''}Git`}</Text>
+        <Text>  </Text>
+        <Text backgroundColor={state.root === '' ? BORDER : BRANCH_CHIP} color={CHIP_TEXT} bold>{` ${branch} `}</Text>
+        <Text>  </Text>
+        {status}
+      </Box>
+      {barRow(el, 1, actions)}
+      {barRow(el, 2, actions)}
+    </Box>
+  )
+}
+
+// The content card's title: the page's icon and title in the accent, then
+// what it is, dim; ◀ ▶ on the right when rows are wider than the card.
 function titleRow(el: El, page: Page, side: Action[]) {
   const { Box, Text, Button } = el
-  const actions = [...side, ...page.actions]
+  const icon = page.icon ? barIcon(page.icon) : ''
   return (
     <Box flexDirection="row" justifyContent="space-between" height={1} overflow="hidden">
-      <Box flexShrink={1} overflow="hidden">{page.title as never}</Box>
+      <Box flexDirection="row" flexShrink={1} overflow="hidden">
+        <Text color={ACCENT} bold wrap="truncate-end">{`${icon ? `${icon} ` : ''}${page.title}`}</Text>
+        {page.sub ? <Box flexShrink={1} overflow="hidden"><Text>  </Text>{page.sub as never}</Box> : null}
+      </Box>
       <Box flexDirection="row" flexShrink={0} marginLeft={1}>
-        {actions.map(one => (
+        {side.map(one => (
           <Box key={`act:${one.key}`} flexDirection="row">
             <Button key={one.key} plain hover={HOVER_ACCENT} onPress={one.onPress}>
               <Text> </Text>
@@ -80,20 +174,6 @@ function titleRow(el: El, page: Page, side: Action[]) {
         ))}
       </Box>
     </Box>
-  )
-}
-
-// The divider under the tabs, carrying the latest notice when there is one.
-function divider(el: El, inner: number, said: Notice | null) {
-  const { Text } = el
-  if (!said) return <Text dimColor>{'─'.repeat(Math.max(0, inner))}</Text>
-  const text = ` ${said.kind === 'error' ? '✗' : '✓'} ${said.text} `.slice(0, Math.max(0, inner - 4))
-  return (
-    <Text wrap="truncate-end">
-      <Text dimColor>──</Text>
-      <Text color={said.kind === 'error' ? 'red' : 'green'}>{text}</Text>
-      <Text dimColor>{'─'.repeat(Math.max(0, inner - 2 - text.length))}</Text>
-    </Text>
   )
 }
 
@@ -153,7 +233,7 @@ export function barCells(total: number, room: number, offset: number): boolean[]
 
 function drawPage(
   el: El, page: Page, offset: number, room: number, x: number, width: number, height: number,
-  side: Action[], tabs: Node, said: Notice | null, noted: Set<string>, onNote: (target: NoteTarget) => void,
+  side: Action[], header: Node, tabs: Node, noted: Set<string>, onNote: (target: NoteTarget) => void,
 ) {
   const { Box, Text } = el
   const visible = page.rows.slice(offset, offset + room)
@@ -169,15 +249,13 @@ function drawPage(
     else blocks.push({ rows: [row], at: i })
   })
   const background = ctx.config.background === 'none' ? undefined : ctx.config.background
-  const extra = (page.extra ? 1 : 0) + (page.subtitle ? 1 : 0)
+  const extra = page.extra ? 1 : 0
   return (
     <Box flexDirection="column" width={width} height={height} backgroundColor={background}>
-      <Box borderStyle="round" borderColor={BORDER} paddingX={1} flexDirection="column" width={width} height={room + extra + PINNED}>
-        {tabs as never}
-        {divider(el, inner, said)}
+      {header as never}
+      {tabs as never}
+      <Box borderStyle="round" borderColor={BORDER} paddingX={1} flexDirection="column" width={width} height={room + extra + 3}>
         {titleRow(el, page, side)}
-        {page.subtitle ? <Box height={1} overflow="hidden">{page.subtitle as never}</Box> : null}
-        <Text dimColor>{'─'.repeat(Math.max(0, inner))}</Text>
         {page.extra ? <Box height={1} overflow="hidden">{page.extra as never}</Box> : null}
         {blocks.map(block => {
           const first = block.rows[0]!
@@ -186,14 +264,13 @@ function drawPage(
           return (
             <Box key={`blk:${first.key}`} flexDirection="row" height={block.rows.length} overflow="hidden">
               {isCode ? noteGutter(el, block.rows, noted, onNote) : null}
-              <Box width={inner - 2 - (isCode ? 2 : 0)} height={block.rows.length} overflow="hidden" flexDirection="column">{content as never}</Box>
-              <Text> </Text>
+              <Box width={inner - 1 - (isCode ? 2 : 0)} height={block.rows.length} overflow="hidden" flexDirection="column">{content as never}</Box>
               {hasBar && (
                 <Box flexDirection="column" width={1}>
                   {block.rows.map((row, i) => (
                     bar[block.at + i]
-                      ? <Text key={`bar:${row.key}`} color="cyan">┃</Text>
-                      : <Text key={`bar:${row.key}`} dimColor>│</Text>
+                      ? <Text key={`bar:${row.key}`} color={SCROLL_THUMB}>┃</Text>
+                      : <Text key={`bar:${row.key}`} color={SCROLL_TRACK}>│</Text>
                   ))}
                 </Box>
               )}
@@ -209,8 +286,8 @@ function drawPage(
 export async function drawGit($: EngineInterface, el: El, columns: number, rows: number, onTab: (id: Tab) => void) {
   const { Text } = el
   const width = Math.max(24, columns)
-  // Inside the frames, less the scrollbar and its gap.
-  const inner = width - FRAME_X - 2
+  // Inside the content card, less the scrollbar.
+  const inner = width - FRAME_X - 1
   const [stored, storedBack, state, offsets, x, claude, said, notesList, writingNote, base, changedThisTurn] = await Promise.all([
     read($, tab), read($, back), read($, repo), read($, scrollY), read($, scrollX), read($, touched), read($, notice),
     read($, notes), read($, noteDraft), read($, turnBase), read($, turnFiles),
@@ -222,9 +299,6 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
   // While a diff is open, the tab it came from stays lit.
   const lit = current === 'diff' ? from : current
   ctx.iconMode = ctx.config.icons === 'auto' ? await read($, detected) : ctx.config.icons
-  const tabs = tabRow(el, lit, {
-    changes: state.files.length > 0 ? String(state.files.length) : '',
-  }, onTab)
 
   // Text is cut `x` in on every page; each builder notes how wide it would be.
   ctx.slideX = x
@@ -241,7 +315,7 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
       ? filesPage(el, $, state, root, list, open, selected, claude, inner, canDebug)
       : searchPage(el, $, state, root, typed, found, selected, claude, inner)
   } else if (state.root === '') {
-    page = { key: 'norepo', title: <Text bold>{TABS.find(one => one.id === current)?.label ?? ''}</Text>, actions: [], rows: [
+    page = { key: 'norepo', title: TABS.find(one => one.id === current)?.label ?? '', actions: [], rows: [
       node('norepo', <Text color="gray" wrap="truncate-end">{state.error ?? 'Looking for a git repository…'}</Text>),
     ] }
   } else if (current === 'changes') {
@@ -262,9 +336,14 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
       ]
     : []
   const height = Math.max(PINNED + 4, rows)
-  const room = height - PINNED - (page.extra ? 1 : 0) - (page.subtitle ? 1 : 0)
+  const room = height - PINNED - (page.extra ? 1 : 0)
   const offset = Math.min(Math.max(0, page.rows.length - room), Math.max(0, offsets[page.key] ?? 0))
   ctx.lastPage = { key: page.key, total: page.rows.length, room }
   const noted = new Set(notesList.map(noteKey))
-  return drawPage(el, page, offset, room, x, width, height, side, tabs, said, noted, target => { void startNote($, target) })
+  // Where the window is, beside the tabs, as clawd-debug shows its details'.
+  const total = page.rows.length
+  const where = total > room ? `${offset + 1}–${Math.min(total, offset + room)} of ${total}` : ''
+  const tabs = tabRow(el, lit, { changes: state.files.length > 0 ? String(state.files.length) : '' }, where, onTab)
+  const header = headerCard(el, state, said, page.actions)
+  return drawPage(el, page, offset, room, x, width, height, side, header, tabs, noted, target => { void startNote($, target) })
 }

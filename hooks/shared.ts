@@ -47,6 +47,11 @@ const GLYPH = {
   send: ['', '', '→', '→'],
   addNote: ['', '', '+', '+'],
   debug: ['', '', '▷', '▷'],
+  // The header's title, and the content card's.
+  git: ['\ue702', '\uea68', '⎇', ''],
+  folder: ['\uf07b', '\uea83', '', ''],
+  file: ['\uf15b', '\uea7b', '', ''],
+  history: ['\uf1da', '\uea82', '◷', ''],
 } as const
 
 export type GlyphName = keyof typeof GLYPH
@@ -153,7 +158,8 @@ export async function git($: EngineInterface, cwd: string, args: string[], timeo
 export type El = ReturnType<EngineInterface['ui']['resolve']>
 export type Node = RenderElement | string | null
 
-// A toolbar button: an icon and a word, so it says what it does.
+// A toolbar button: an icon and a word, so it says what it does. On the
+// header's key bar, `key` names the bar slot it fills (see BAR in draw).
 export type Action = { key: string; label: string; word?: string; color?: string; onPress: () => void }
 
 // One line of a page: something drawn, or a line of code drawn with its run.
@@ -165,10 +171,12 @@ export type Row =
 export type Page = {
   // Where this page's scroll position is kept.
   key: string
-  title: Node
-  // A second header line under the title: the branch and its counts, so a
-  // long path above keeps its whole row.
-  subtitle?: Node
+  // The content card's title (in the accent, after `icon`) and what follows
+  // it, dim: as clawd-debug titles its code card with the file and its folder.
+  title: string
+  icon?: GlyphName
+  sub?: Node
+  // What the page can do now: each fills the header's key bar slot of its key.
   actions: Action[]
   // A pinned line under the title (the search field, a question, a draft).
   extra?: Node
@@ -184,9 +192,10 @@ export function slid(text: string, natural: number) {
 // The pane is drawn as clawd-statusbar draws its bar: rounded dim frames,
 // parts joined by a dim " · ", plain terminal colors, nothing filled.
 export const DOT = ' · '
-// Rows the pane draws around a page's rows, all in one frame: its border, the
-// tabs, a divider, the title line, and a divider under it.
-export const PINNED = 6
+// Rows the pane draws around a page's rows: the header card (its border and
+// three rows), the tab row, and the content card's border and title line.
+export const HEADER_ROWS = 5
+export const PINNED = HEADER_ROWS + 1 + 3
 // Frame borders and padding: one cell of border and one of padding a side.
 export const FRAME_X = 4
 // Hover: color alone, never a background block, so text stays readable on
@@ -202,3 +211,10 @@ export const ACCENT = CLAUDE_COLOR
 export const BORDER = '#5c6370'
 export const CHIP_TEXT = '#1e2127'
 export const BRANCH_CHIP = '#c678dd'
+export const OK = '#98c379'
+export const WARN = '#e5c07b'
+export const ERR = '#e06c75'
+// The scrollbar and section rules, as clawd-debug draws them.
+export const SCROLL_THUMB = '#7f848e'
+export const SCROLL_TRACK = '#3e4451'
+export const RULE = 'subtle'

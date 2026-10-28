@@ -77,6 +77,13 @@ function world(on: On, opts: { diff?: string; status?: string; staged?: string; 
   return seen
 }
 
+// A key bar button that does something now: drawn, and not dim (every key is
+// always drawn, dim when the page has nothing for it).
+async function isLive(ui: { find: (q: { key: string }) => Promise<unknown> }, key: string) {
+  const found = await ui.find({ key })
+  return found !== undefined && !JSON.stringify(found).includes('"dimColor":true')
+}
+
 // The lit tab's text: the one pill filled with the accent.
 async function litTab(ui: { findAll: (q: { type: string }) => Promise<{ text: string; props: Record<string, unknown> }[]> }) {
   return (await ui.findAll({ type: 'Text' })).find(one => one.props.backgroundColor === '#d97757')?.text
@@ -180,7 +187,7 @@ test('the Files tab reads folders from disk and opens them on press', async ($, 
     await ui.press({ key: 'found:src/a.ts' })
     expect((await ui.find({ type: 'Code' }))?.props.format).toBe('diff')
     await ui.press({ key: 'back' })
-    await ui.press({ key: 'search-close' })
+    await ui.press({ key: 'search' })
     expect(await ui.find({ key: 'dir:src' })).toBeDefined()
     await ui.unmount()
   }
@@ -296,12 +303,12 @@ test('files Claude edits are marked, and Changes can list only those', async ($,
   world(on)
   const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
   await ui.press({ key: 'tab:changes' })
-  expect(await ui.find({ key: 'session' })).toBe(undefined)
+  expect(await isLive(ui, 'session')).toBe(false)
   await $.tool.call({ tool: 'Edit', file_path: '/work/app/src/a.ts', old_string: 'old', new_string: 'new' } as never)
   await ui.press({ key: 'tab:changes' })
   expect((await ui.find({ key: 'chg:src/a.ts' }))?.text).toContain('\u2726')
   expect((await ui.find({ key: 'chg:notes.md' }))?.text).not.toContain('\u2726')
-  expect((await ui.find({ key: 'session' }))?.text).toContain('By Claude 1')
+  expect((await ui.find({ key: 'session' }))?.text).toContain("Claude's 1")
   await ui.press({ key: 'session' })
   expect(await ui.find({ key: 'chg:src/a.ts' })).toBeDefined()
   expect(await ui.find({ key: 'chg:notes.md' })).toBe(undefined)
@@ -344,7 +351,7 @@ test('a diff asks Claude to review it; a commit asks Claude to explain it', asyn
   expect(seen.prompts[0]).toContain('Review the uncommitted changes in `src/a.ts`')
   await ui.press({ key: 'tab:commits' })
   await ui.press({ key: 'c:abc1234:0' })
-  expect((await ui.find({ key: 'review' }))?.text).toContain('Explain')
+  expect((await ui.find({ key: 'review' }))?.text).toContain('explain')
   await ui.press({ key: 'review' })
   expect(seen.prompts[1]).toContain('Explain commit abc1234')
   await ui.unmount()
@@ -419,8 +426,8 @@ test('without clawd-debug, files have no debug buttons', async ($, on) => {
   await ui.press({ key: 'tab:changes' })
   expect(await ui.find({ key: 'debug:src/a.php' })).toBeUndefined()
   await ui.press({ key: 'chg:src/a.php' })
-  expect(await ui.find({ key: 'debug' })).toBeUndefined()
-  expect(await ui.find({ key: 'edit' })).toBeDefined()
+  expect(await isLive(ui, 'debug')).toBe(false)
+  expect(await isLive(ui, 'edit')).toBe(true)
   await ui.unmount()
 })
 
@@ -458,7 +465,7 @@ test('a note on a diff line goes to Claude with its file, line and code', async 
   expect(await ui.find({ text: /handle an empty cart/ })).toBeDefined()
   // The line now shows it has a note; the toolbar offers to send.
   expect((await ui.find({ key: 'note:dl:0:3' }))?.text).toContain('\u270e')
-  expect((await ui.find({ key: 'send-review' }))?.text).toContain('Send review 1')
+  expect((await ui.find({ key: 'send-review' }))?.text).toContain('notes 1')
   // Changes lists it too.
   await ui.press({ key: 'back' })
   expect(await ui.find({ key: 'notes-send' })).toBeDefined()
@@ -475,14 +482,15 @@ test('this turn shows what changed since the turn began', async ($, on) => {
   on('turn.start', ($, e) => ({ turnId: e.turnId }) as never)
   const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
   await ui.press({ key: 'tab:changes' })
-  expect(await ui.find({ key: 'turn' })).toBe(undefined)
+  expect(await isLive(ui, 'turn')).toBe(false)
   await $.turn.start({ text: 'Fix the cart', turnId: 't1' } as never)
   // Shown as soon as a turn has begun, with no count while nothing changed.
   await ui.press({ key: 'tab:changes' })
-  expect((await ui.find({ key: 'turn' }))?.text).toMatch(/This turn\s*$/)
+  expect(await isLive(ui, 'turn')).toBe(true)
+  expect((await ui.find({ key: 'turn' }))?.text).toMatch(/turn\s*$/)
   await $.tool.call({ tool: 'Edit', file_path: '/work/app/src/a.ts', old_string: 'old', new_string: 'new' } as never)
   await ui.press({ key: 'tab:changes' })
-  expect((await ui.find({ key: 'turn' }))?.text).toContain('This turn 1')
+  expect((await ui.find({ key: 'turn' }))?.text).toContain('turn 1')
   await ui.press({ key: 'turn' })
   expect(await ui.find({ text: /1 file changed since your last message/ })).toBeDefined()
   expect(String((await ui.find({ type: 'Code' }))?.props.source)).toContain('+new')
@@ -499,7 +507,7 @@ test('a /clear starts the panel over: "This turn" is gone and git is read again'
   const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
   await $.turn.start({ text: 'Fix the cart', turnId: 't1' } as never)
   await ui.press({ key: 'tab:changes' })
-  expect(await ui.find({ key: 'turn' })).toBeDefined()
+  expect(await isLive(ui, 'turn')).toBe(true)
 
   // /clear: the session ends, the process goes on under a new id, no session.start.
   id = 's2'
@@ -508,22 +516,31 @@ test('a /clear starts the panel over: "This turn" is gone and git is read again'
   await clock.advance(500)
   expect(seen.argv.slice(before).some(argv => argv.join(' ').includes('status --porcelain'))).toBe(true)
   await ui.press({ key: 'tab:changes' })
-  expect(await ui.find({ key: 'turn' })).toBe(undefined)
+  expect(await isLive(ui, 'turn')).toBe(false)
   expect(await ui.find({ key: 'chg:src/a.ts' })).toBeDefined()
   await ui.unmount()
 })
 
-test('each tab puts the folder on the first header line and the branch on the second', async ($, on) => {
+test('the header card names the branch as a chip; each tab titles its card as clawd-debug does', async ($, on) => {
   world(on)
   const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
-  for (const tab of ['files', 'changes', 'commits']) {
+  await ui.press({ key: 'tab:changes' })
+  // Git in the accent, the branch as a chip, the tree's state, and the key bar.
+  expect((await ui.find({ type: 'Text', text: /Git$/ }))?.props.color).toBe('#d97757')
+  const chips = await ui.findAll({ type: 'Text', text: /main $/ })
+  expect(chips.some(one => one.props.backgroundColor === '#c678dd')).toBe(true)
+  expect(await ui.find({ type: 'Text', text: '●2 changed' })).toBeDefined()
+  expect((await ui.find({ key: 'refresh' }))?.props.hotkey).toBe('r')
+  const titles: Record<string, RegExp> = { files: /app$/, changes: /Changes$/, commits: /History$/ }
+  for (const [tab, title] of Object.entries(titles)) {
     await ui.press({ key: `tab:${tab}` })
-    const path = await ui.find({ type: 'Text', text: '/work/app' })
-    expect(path?.props.wrap).toBe('truncate-start')
-    // The branch sits on its own line: the path's Text does not hold it.
-    expect(path?.text).not.toContain('main')
-    expect(await ui.find({ type: 'Text', text: / main $/ })).toBeDefined()
+    const found = await ui.find({ type: 'Text', text: title })
+    expect(found?.props.color).toBe('#d97757')
+    expect(found?.props.bold).toBe(true)
   }
+  // The project's folder follows its name, dim.
+  await ui.press({ key: 'tab:files' })
+  expect((await ui.find({ type: 'Text', text: '/work' }))?.props.dimColor).toBe(true)
   await ui.unmount()
 })
 

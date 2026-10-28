@@ -12,7 +12,7 @@ import {
 import { fit, fitPath, fsTreeRows, hunkLines } from './git'
 import { iconFor, lineIconFor, outlineIconFor, simpleIconFor } from './icons'
 import {
-  ACCENT, BRANCH_CHIP, CHIP_TEXT, CLAUDE_COLOR, ctx, DOT, glyph, HOVER, LOG_LIMIT, SEARCH_RESULTS, slid, SOURCE_LINES, TREE_ROWS, viewKey,
+  CHIP_TEXT, CLAUDE_COLOR, ctx, DOT, glyph, HOVER, LOG_LIMIT, RULE, SEARCH_RESULTS, slid, SOURCE_LINES, TREE_ROWS, viewKey,
 } from './shared'
 import type { Action, El, Node, Page, Row } from './shared'
 
@@ -40,16 +40,39 @@ export function parts(el: El, items: { text: string; color?: string; bold?: bool
   )
 }
 
-// The first header line: the repository's folder, whole when it fits; a long
-// one loses its start (…/sites/app), since the end names the project.
-function pathTitle(el: El, root: string, fallback: string) {
-  const { Text } = el
-  return <Text color={ACCENT} bold wrap="truncate-start">{homePath(root) || fallback}</Text>
+// A folder in `room` cells: whole folders cut from the front (…/), so its
+// end stays, as clawd-debug cuts the folder in its code card's title.
+export function fitFolder(folder: string, room: number) {
+  if ([...folder].length <= room) return folder
+  const parts = folder.split('/')
+  for (let i = 1; i < parts.length; i++) {
+    const tail = `…/${parts.slice(i).join('/')}`
+    if ([...tail].length <= room) return tail
+  }
+  const last = [...(parts.at(-1) ?? '')]
+  return room <= 1 ? '' : `…${last.slice(-(room - 1)).join('')}`
 }
 
-// The branch as a chip, for the second header line.
-function branchChip(state: Repo) {
-  return { text: `${glyph('branch') ? glyph('branch') + ' ' : ''}${state.branch || 'detached'}`, chip: BRANCH_CHIP }
+// The folder a project sits in, dim after its name: ~ for home, cut to fit.
+function whereText(el: El, root: string, room: number) {
+  const { Text } = el
+  const parent = homePath(root.slice(0, Math.max(0, root.lastIndexOf('/'))))
+  return <Text dimColor>{fitFolder(parent, Math.max(0, room))}</Text>
+}
+
+// A section heading in a page, as clawd-debug draws one: the title, a rule to
+// the edge, and how many it holds.
+function section(el: El, title: string, info: string, width: number) {
+  const { Text } = el
+  const tail = info ? ` ${info}` : ''
+  const fill = Math.max(2, width - [...title].length - [...tail].length - 1)
+  return (
+    <Text wrap="truncate-end">
+      <Text bold>{title}</Text>
+      <Text color={RULE}>{` ${'─'.repeat(fill)}`}</Text>
+      <Text dimColor>{tail}</Text>
+    </Text>
+  )
 }
 
 export function node(key: string, one: Node): Row {
@@ -152,11 +175,9 @@ export function filesPage(
   const { Box, Text, Button } = el
   const page: Page = {
     key: 'files',
-    title: pathTitle(el, root, 'Files'),
-    subtitle: parts(el, [
-      branchChip(state),
-      { text: state.files.length > 0 ? `●${state.files.length} changed` : 'clean', color: state.files.length > 0 ? 'yellow' : undefined, dim: state.files.length === 0 },
-    ]),
+    title: root.split('/').pop() || 'Files',
+    icon: 'folder',
+    sub: whereText(el, root, width - [...(root.split('/').pop() || 'Files')].length - 6),
     actions: [
       { key: 'search', label: glyph('search'), word: 'Search', onPress: () => { void openSearch($) } },
       ...(open.length > 0 ? [{ key: 'collapse', label: glyph('collapse'), word: 'Collapse', onPress: () => { void collapseAll($) } }] : []),
@@ -236,8 +257,10 @@ export function searchPage(
   const name = root.split('/').pop() || root
   const page: Page = {
     key: 'search',
-    title: <Text bold wrap="truncate-end">{`Search ${name}`}</Text>,
-    actions: [{ key: 'search-close', label: glyph('close'), word: 'Close', onPress: () => { void closeSearch($) } }],
+    title: 'Search',
+    icon: 'search',
+    sub: <Text dimColor>{`in ${name}`}</Text>,
+    actions: [{ key: 'search', label: glyph('close'), word: 'End search', onPress: () => { void closeSearch($) } }],
     extra: Input
       ? <Input key="search-input" placeholder="File name or path" value={typed} autoFocus
           onInput={(value: string) => { void search($, value) }} onSubmit={(value: string) => { void search($, value) }} />
@@ -287,12 +310,10 @@ export function changesPage(
   const stagedCount = state.files.filter(isStaged).length
   const page: Page = {
     key: isSessionOnly ? 'changes:session' : 'changes',
-    title: pathTitle(el, state.root, 'Changes'),
-    subtitle: parts(el, [
-      branchChip(state),
-      { text: state.ahead > 0 ? `↑${state.ahead}` : '', color: 'green' },
-      { text: state.behind > 0 ? `↓${state.behind}` : '', color: 'red' },
-      { text: files.length > 0 ? `${files.length} changed` : 'clean', dim: true },
+    title: isSessionOnly ? "Claude's changes" : 'Changes',
+    icon: 'diffAll',
+    sub: parts(el, [
+      { text: files.length > 0 ? `${files.length} file${files.length > 1 ? 's' : ''}` : 'clean', dim: true },
       { text: files.length > 0 ? `+${added} −${removed}` : '', color: 'green' },
     ]),
     actions: [
@@ -343,7 +364,7 @@ export function changesPage(
   groups.filter(group => group.files.length > 0).forEach(group => {
     page.rows.push(node(`g:${group.title}`, (
       <Box key={`ghead:${group.title}`} flexDirection="row" justifyContent="space-between" height={1} overflow="hidden">
-        <Text color="gray" bold>{`${group.title.toUpperCase()}  ${group.files.length}`}</Text>
+        <Box flexGrow={1} flexShrink={1} overflow="hidden">{section(el, group.title.toUpperCase(), String(group.files.length), width - (group.act ? group.act.label.length + 3 : 0))}</Box>
         {group.act ? rowButtons(el, `gact:${group.title}`, [{ key: `gact:${group.title}`, label: group.act.label, color: 'gray', onPress: group.act.onPress }]) : null}
       </Box>
     )))
@@ -446,9 +467,9 @@ export function commitsPage(el: El, $: EngineInterface, state: Repo, rows: LogRo
   const commits = rows.filter(row => row.hash).length
   const page: Page = {
     key: 'commits',
-    title: pathTitle(el, state.root, 'History'),
-    subtitle: parts(el, [
-      branchChip(state),
+    title: 'History',
+    icon: 'history',
+    sub: parts(el, [
       { text: `${commits}${commits >= LOG_LIMIT ? '+' : ''} commits`, dim: true },
       { text: 'all branches', dim: true },
     ]),
@@ -513,6 +534,7 @@ export function diffPage(
     ? (hunkLines(one.diffs[0]?.hunks ?? '').find(line => line.kind !== 'hunk')?.newAt ?? 1)
     : 1
   const actions: Action[] = [
+    { key: 'back', label: glyph('back'), word: 'Back', onPress: () => { void goBack($) } },
     ...(notes.length > 0
       ? [{ key: 'send-review', label: glyph('send'), word: `Send review ${notes.length}`, color: CLAUDE_COLOR, onPress: () => { void sendReview($) } }]
       : []),
@@ -526,17 +548,14 @@ export function diffPage(
   ]
   const page: Page = {
     key: `diff:${viewKey(current)}`,
-    title: (
-      <Box flexDirection="row" columnGap={1}>
-        <Box key="backrow">
-          <Button key="back" plain hover={{ color: 'cyan', underline: true }} onPress={() => { void goBack($) }}>
-            <Text color="cyan">{`${glyph('back')} Back`}</Text>
-          </Button>
-        </Box>
-        <Text bold wrap="truncate-end">{isStale ? 'Loading…' : fit(one.title, Math.max(8, width - 40))}</Text>
-      </Box>
-    ),
-    actions: isStale ? [] : actions,
+    // A file: its name, then its folder dim, as clawd-debug titles its code card.
+    title: isStale ? 'Loading…' : current.kind === 'file' ? current.path.split('/').pop() ?? current.path : one.title,
+    icon: current.kind === 'file' ? 'file' : current.kind === 'commit' ? 'commit' : current.kind === 'turn' ? 'turn' : 'diffAll',
+    sub: !isStale && current.kind === 'file' && current.path.includes('/')
+      ? <Text dimColor>{fitFolder(current.path.slice(0, current.path.lastIndexOf('/')), Math.max(0, width - [...(current.path.split('/').pop() ?? '')].length - 6))}</Text>
+      : undefined,
+    // Back stays on the bar while it loads.
+    actions: isStale ? actions.slice(0, 1) : actions,
     rows: [],
   }
   if (isStale) return page
