@@ -19,6 +19,7 @@ export const TABS: { id: Exclude<Tab, 'diff'>; label: string; glyph: readonly [s
   { id: 'files', label: 'Files', glyph: ['', ''] },
   { id: 'changes', label: 'Changes', glyph: ['', ''] },
   { id: 'commits', label: 'Commits', glyph: ['', ''] },
+  { id: 'restore', label: 'Restore', glyph: ['\uf1da', '\uea82'] },
 ]
 
 // Toolbar and tree glyphs.
@@ -131,7 +132,7 @@ export function isNew(key: string, value: unknown) {
 }
 
 export function viewKey(one: View) {
-  return one.kind === 'all' ? 'all' : one.kind === 'turn' ? 'turn' : one.kind === 'file' ? `file:${one.path}` : `commit:${one.hash}`
+  return one.kind === 'all' ? 'all' : one.kind === 'turn' ? 'turn' : one.kind === 'file' ? `file:${one.path}` : one.kind === 'checkpoint' ? `point:${one.ref}` : `commit:${one.hash}`
 }
 
 export function describe(change: Change) {
@@ -147,6 +148,86 @@ export function describe(change: Change) {
 export function relativeTo(root: string, path: string) {
   if (root !== '' && path.startsWith(`${root}/`)) return path.slice(root.length + 1)
   return path.startsWith('/') ? '' : path
+}
+
+// ---------------------------------------------------------------- snapshots
+
+// Snapshots of the working tree (this turn's start, restore points) live in a
+// repository of their own inside .git: .git/clawd-git/points.git. It reads the
+// project's objects (git's alternates), so it stores only what is new, and
+// writes nothing to the project's repository: no refs, no objects, nothing in
+// `git log --all`.
+type Side = { dir: string; gitDir: string }
+const sides = new Map<string, Side>()
+
+export async function sideOf($: EngineInterface, root: string): Promise<Side | undefined> {
+  const known = sides.get(root)
+  if (known) return known
+  const out = await git($, root, ['rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir']).catch(() => undefined)
+  if (!out || out.exitCode !== 0) return undefined
+  const [gitDir = '', common = ''] = out.stdout.trim().split('\n')
+  if (gitDir === '' || common === '') return undefined
+  const dir = `${common}/clawd-git/points.git`
+  try {
+    if (!(await $.fs.exists(`${dir}/HEAD`))) {
+      const made = await $.process.run(['git', 'init', '--bare', '-q', dir], { cwd: root, timeoutMs: 15_000 })
+      if (made.exitCode !== 0) return undefined
+    }
+    await $.fs.write(`${dir}/objects/info/alternates`, `${common}/objects\n`)
+  } catch {
+    return undefined
+  }
+  const side = { dir, gitDir }
+  sides.set(root, side)
+  return side
+}
+
+// git in the snapshot repository, over the project's working tree; with
+// `withIndex`, through a copy of the project's index (git's own is untouched,
+// and its stat cache means only files changed since the last `git add` are read).
+let indexes = 0
+export async function sideGit(
+  $: EngineInterface, root: string, args: string[], opts: { withIndex?: boolean; env?: Record<string, string>; timeoutMs?: number } = {},
+) {
+  const side = await sideOf($, root)
+  if (!side) return { exitCode: 1, stdout: '', stderr: 'not a git repository' }
+  const index = opts.withIndex ? `${side.dir}/snapshot-${++indexes}.index` : undefined
+  try {
+    if (index) {
+      const hasIndex = await $.fs.stat(`${side.gitDir}/index`).then(() => true).catch(() => false)
+      if (hasIndex) await $.process.run(['cp', `${side.gitDir}/index`, index], { timeoutMs: 15_000 })
+      // The project's own ignore list for this repository, as git reads it.
+      const exclude = await $.fs.read(`${side.gitDir}/info/exclude`).catch(() => undefined)
+      if (exclude !== undefined) await $.fs.write(`${side.dir}/info/exclude`, String(exclude)).catch(() => undefined)
+    }
+    const env = { GIT_DIR: side.dir, GIT_WORK_TREE: root, ...(index ? { GIT_INDEX_FILE: index } : {}), ...(opts.env ?? {}) }
+    return await $.process.run(['git', '-c', 'core.quotePath=false', '-c', 'color.ui=never', ...args], { cwd: root, env, timeoutMs: opts.timeoutMs ?? 30_000 })
+  } finally {
+    if (index) await $.process.run(['rm', '-f', index], { timeoutMs: 5000 }).catch(() => undefined)
+  }
+}
+
+// The working tree as it stands, as a tree in the snapshot repository:
+// tracked and new files, ignored ones left out.
+export async function snapshotTree($: EngineInterface, root: string): Promise<string | undefined> {
+  const side = await sideOf($, root)
+  if (!side) return undefined
+  const index = `${side.dir}/snapshot-${++indexes}.index`
+  try {
+    const hasIndex = await $.fs.stat(`${side.gitDir}/index`).then(() => true).catch(() => false)
+    if (hasIndex) await $.process.run(['cp', `${side.gitDir}/index`, index], { timeoutMs: 15_000 })
+    const exclude = await $.fs.read(`${side.gitDir}/info/exclude`).catch(() => undefined)
+    if (exclude !== undefined) await $.fs.write(`${side.dir}/info/exclude`, String(exclude)).catch(() => undefined)
+    const env = { GIT_DIR: side.dir, GIT_WORK_TREE: root, GIT_INDEX_FILE: index }
+    const add = await $.process.run(['git', 'add', '-A'], { cwd: root, env, timeoutMs: 120_000 })
+    if (add.exitCode !== 0) return undefined
+    const tree = await $.process.run(['git', 'write-tree'], { cwd: root, env, timeoutMs: 30_000 })
+    return tree.exitCode === 0 ? tree.stdout.trim() : undefined
+  } catch {
+    return undefined
+  } finally {
+    await $.process.run(['rm', '-f', index], { timeoutMs: 5000 }).catch(() => undefined)
+  }
 }
 
 export async function git($: EngineInterface, cwd: string, args: string[], timeoutMs = 15_000, stdin?: string) {

@@ -9,7 +9,7 @@ import type { EngineInterface } from 'claude-code'
 import type { NoteTarget, Notice, Repo, Tab } from '../types'
 import { hasDebugger, isDebuggable, slide, startNote } from './actions'
 import { hunkOf } from './git'
-import { changesPage, commitsPage, diffPage, filesPage, node, searchPage } from './pages'
+import { changesPage, commitsPage, diffPage, filesPage, node, restorePage, searchPage } from './pages'
 import {
   ACCENT, BORDER, BRANCH_CHIP, CHIP_TEXT, CLAUDE_COLOR, ctx, DOT, EMPTY_REPO, EMPTY_SHOWN, ERR, FRAME_X, glyph, HEADER_ROWS, HOVER_ACCENT, OK,
   PINNED, SCROLL_THUMB, SCROLL_TRACK, SIDE_STEP, TABS, WARN,
@@ -39,6 +39,7 @@ const turnBase = atom({ plugin: 'clawd-git', key: 'turnBase' } as const, null)
 const turnFiles = atom({ plugin: 'clawd-git', key: 'turnFiles' } as const, [])
 const notes = atom({ plugin: 'clawd-git', key: 'notes' } as const, [])
 const noteDraft = atom({ plugin: 'clawd-git', key: 'noteDraft' } as const, null)
+const checkpoints = atom({ plugin: 'clawd-git', key: 'checkpoints' } as const, [])
 
 // The tab row between the cards, as clawd-debug draws its tabs: pills, the lit
 // one filled with the accent, each with its count.
@@ -321,9 +322,12 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
   } else if (current === 'changes') {
     const [isSessionOnly, asked, drafting] = await Promise.all([read($, sessionOnly), read($, confirm), read($, draft)])
     page = changesPage(el, $, state, claude, isSessionOnly, asked, drafting, { files: changedThisTurn, isOn: base !== null }, notesList, inner, canDebug)
+  } else if (current === 'restore') {
+    page = restorePage(el, $, await read($, checkpoints), await read($, confirm), inner)
   } else if (current === 'diff') {
     const shownView = await read($, view)
-    page = diffPage(el, $, await read($, shown), shownView, notesList, writingNote, inner, shownView.kind === 'file' && canDebug && isDebuggable(shownView.path))
+    const point = shownView.kind === 'checkpoint' ? (await read($, checkpoints)).find(one => one.ref === shownView.ref) : undefined
+    page = diffPage(el, $, await read($, shown), shownView, notesList, writingNote, inner, shownView.kind === 'file' && canDebug && isDebuggable(shownView.path), point)
   }
   else page = commitsPage(el, $, state, await read($, log), inner)
 

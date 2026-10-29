@@ -5,7 +5,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Change, Note, NoteTarget, Repo, Tab, View } from '../types'
+import type { Change, Checkpoint, Confirm, Note, NoteTarget, Repo, Tab, View } from '../types'
+import { restorePoint, savePoint, whenOf } from './checkpoints'
 import { refresh } from './data'
 import { DRAFT_MODEL, EMPTY_REPO, SEARCH_RESULTS, ctx, git, viewKey } from './shared'
 
@@ -181,7 +182,8 @@ export async function askDiscard($: EngineInterface, change: Change) {
   // A new file is deleted; a staged new file is taken out of git and deleted;
   // anything else goes back to what HEAD holds.
   const how = change.kind === 'untracked' ? 'clean' : change.index === 'A' ? 'remove' : 'restore'
-  await update($, confirm, () => ({ kind: 'discard', path: change.path, how }))
+  const asked: Confirm = { kind: 'discard', path: change.path, how }
+  await update($, confirm, () => asked)
 }
 
 export async function cancelConfirm($: EngineInterface) {
@@ -191,11 +193,41 @@ export async function cancelConfirm($: EngineInterface) {
 export async function confirmDiscard($: EngineInterface) {
   const asked = await read($, confirm)
   await update($, confirm, () => null)
-  if (!asked) return
+  if (!asked || asked.kind !== 'discard') return
   const args = asked.how === 'clean' ? ['clean', '-f', '-q', '--', asked.path]
     : asked.how === 'remove' ? ['rm', '-f', '-q', '--', asked.path]
     : ['restore', '--staged', '--worktree', '--source=HEAD', '--', asked.path]
   await inRepo($, args, asked.how === 'restore' ? `Discarded changes to ${asked.path}` : `Deleted ${asked.path}`)
+}
+
+// ---------------------------------------------------------------- restore points
+
+// A restore point of the files as they are now.
+export async function savePointNow($: EngineInterface) {
+  const state = await read($, repo)
+  if (state.root === '') return
+  const saved = await savePoint($, state.root, 'saved by you', 'manual')
+  await say($, saved.point ? (saved.isNew ? `Saved a restore point at ${whenOf(saved.point.at)}.` : `Nothing changed since the restore point at ${whenOf(saved.point.at)}.`) : 'Could not save a restore point.', saved.point ? 'ok' : 'error')
+  await refresh($)
+}
+
+// A restore rewrites files, so it asks first, in the panel.
+export async function askRestore($: EngineInterface, point: Checkpoint) {
+  const asked: Confirm = { kind: 'restore', ref: point.ref, when: whenOf(point.at), label: point.label, changed: point.changed }
+  await update($, confirm, () => asked)
+}
+
+export async function confirmRestore($: EngineInterface) {
+  const asked = await read($, confirm)
+  await update($, confirm, () => null)
+  const state = await read($, repo)
+  if (!asked || asked.kind !== 'restore' || state.root === '') return
+  const done = await restorePoint($, state.root, asked.ref)
+  await say($, done.text, done.ok ? 'ok' : 'error')
+  // Everything may have moved: read it all again, and show the list.
+  ctx.lastSignature = ''
+  await update($, tab, () => 'restore')
+  await refresh($)
 }
 
 // ---------------------------------------------------------------- asking Claude

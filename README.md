@@ -15,6 +15,7 @@ A live git panel for [Claude Code](https://claude.com/claude-code), docked besid
 | **Files** | The folder tree on disk, as an editor's sidebar: open a folder, press a file to see its diff (or its text). Git-ignored entries dimmed, changed files colored with their status, folders holding changes marked •. **Search** finds any file by name. |
 | **Changes** | The branch and every changed file, grouped (conflicts, staged, unstaged, new), with `+added −removed`. **Diff all** shows every change at once. |
 | **Commits** | The commit graph across all branches, one color per lane; press a commit to see its diff. |
+| **Restore** | Restore points: the project's files as they were before each of Claude's turns. Press one to see what restoring would change; **restore** puts them back. |
 
 A diff opens over the tab it came from; **Back** returns there. The header stays put while the rows scroll (wheel, PageUp/PageDown, Home/End), and anything wider than the panel slides sideways with ◀ ▶.
 
@@ -33,6 +34,15 @@ The panel is drawn like [clawd-debug](https://github.com/itsomidho/clawd-debug)'
 
 - **This turn**: when Claude starts working on your message, the panel takes a snapshot of the working tree. **This turn** in Changes then shows exactly what Claude changed since your last message, new files included, as one diff. (The snapshot is a git tree object written through a copy of the index: your files, your staged changes and your history are left alone.)
 - Every file Claude writes this session (with Edit, Write, or a shell command) is marked **✦** in Files and Changes. **By Claude** narrows Changes to those files; a `/clear` starts the list over.
+
+### Restore points
+
+Each time Claude starts on your message, the panel keeps a restore point: every file of the project as it stands, tracked or new (git-ignored files left out). **Restore** puts the files back as they were then, whatever changed them since: Claude's edits, files it deleted or moved with a shell command, folders it made, even a new file you never committed. It asks first, and keeps the files as they are now as a restore point too, so a restore can be undone. **Save a restore point now** keeps one whenever you like.
+
+- The last 20 are kept per project. A turn that changed nothing does not add one.
+- They live in a repository of their own inside `.git` (`.git/clawd-git/points.git`): nothing is added to your repository, your history, your branches or `git log --all`, and nothing is pushed. A restore writes files only: your commits, branch and staged changes are left alone.
+- Files only: not the database (a `wp` command, a migration), not git-ignored files (`vendor/`, `node_modules/`, `.env`, uploads).
+- A point reuses the objects your repository already has. A point older than git's cleanup window (two weeks) that relied on an object your repository has since dropped may not restore every file; the panel says so if a restore comes out short.
 
 ### Reviewing Claude's work
 
@@ -63,7 +73,7 @@ For Claude's plan as it works, add [clawd-tasks](https://github.com/itsomidho/cl
 
 ## Use
 
-`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `commits`, `diff` or `turn` opens it on that tab or view. Click anything in it, or focus it with ctrl+x tab to use its keys. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
+`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `commits`, `restore`, `diff` or `turn` opens it on that tab or view. Click anything in it, or focus it with ctrl+x tab to use its keys. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
 
 It refreshes right after each edit or shell command of Claude's. In between it asks git for its status every 2 seconds and reads the rest only when something moved, so a quiet repository costs one `git status` per tick.
 
@@ -86,7 +96,8 @@ In `/config`:
 ```
 claude plugin validate .
 claude plugin test .
+node --import ./tests/git/loader.mjs --test 'tests/git/*.test.mjs'   # restore points against real git
 python3 docs/demo_gif.py docs/demo.gif   # needs Pillow and FiraCode Nerd Font Mono
 ```
 
-The hooks live in `hooks/`: `register.tsx` wires them, `data.ts` reads git and the disk, `actions.ts` is what a press does, `pages.tsx` builds each tab, `draw.tsx` draws the frames, `git.ts` and `icons.ts` are pure helpers with their own tests.
+The hooks live in `hooks/`: `register.tsx` wires them, `data.ts` reads git and the disk, `actions.ts` is what a press does, `pages.tsx` builds each tab, `draw.tsx` draws the frames, `checkpoints.ts` keeps and restores restore points, `git.ts` and `icons.ts` are pure helpers with their own tests.

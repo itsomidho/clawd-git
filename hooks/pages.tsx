@@ -3,16 +3,17 @@
 
 import type { EngineInterface } from 'claude-code'
 
-import type { Change, Confirm, Draft, Entry, LogRow, Note, NoteTarget, Repo, Shown, Touch, View } from '../types'
+import type { Change, Checkpoint, Confirm, Draft, Entry, LogRow, Note, NoteTarget, Repo, Shown, Touch, View } from '../types'
 import {
-  askDiscard, askReview, cancelConfirm, cancelNote, clearNotes, closeSearch, collapseAll, commitDraft,
+  askDiscard, askRestore, askReview, cancelConfirm, confirmRestore, savePointNow, selectTab, cancelNote, clearNotes, closeSearch, collapseAll, commitDraft,
   confirmDiscard, debugFile, draftCommit, draftToClaude, dropDraft, goBack, openInEditor, openSearch, openView, reload,
   isDebuggable, removeNote, saveNote, search, sendReview, stage, toggleDir, toggleSessionOnly, unstage,
 } from './actions'
+import { KEEP, whenOf } from './checkpoints'
 import { fit, fitPath, fsTreeRows, hunkLines } from './git'
 import { iconFor, lineIconFor, outlineIconFor, simpleIconFor } from './icons'
 import {
-  CHIP_TEXT, CLAUDE_COLOR, ctx, DOT, glyph, HOVER, LOG_LIMIT, RULE, SEARCH_RESULTS, slid, SOURCE_LINES, TREE_ROWS, viewKey,
+  ACCENT, CHIP_TEXT, CLAUDE_COLOR, ctx, DOT, glyph, HOVER, HOVER_ACCENT as HOVER_BUTTON, LOG_LIMIT, RULE, WARN, SEARCH_RESULTS, slid, SOURCE_LINES, TREE_ROWS, viewKey,
 } from './shared'
 import type { Action, El, Node, Page, Row } from './shared'
 
@@ -336,7 +337,7 @@ export function changesPage(
     rows: [],
   }
   // A question before something that cannot be undone.
-  if (asked) {
+  if (asked && asked.kind === 'discard') {
     const { Button } = el
     page.extra = (
       <Box flexDirection="row" height={1} overflow="hidden">
@@ -458,6 +459,71 @@ function draftRows(el: El, $: EngineInterface, drafting: Draft, width: number): 
   return rows
 }
 
+// ---------------------------------------------------------------- Restore
+
+// The restore points, newest first: when, what came next (your message), how
+// many files differ from now, and Restore. A press on a row previews it.
+export function restorePage(el: El, $: EngineInterface, points: Checkpoint[], asked: Confirm | null, width: number): Page {
+  const { Box, Text, Button } = el
+  const page: Page = {
+    key: 'restore',
+    title: 'Restore points',
+    icon: 'history',
+    sub: <Text dimColor>{points.length > 0 ? `${points.length} kept · the last ${KEEP}` : 'none yet'}</Text>,
+    actions: [{ key: 'refresh', label: glyph('refresh'), word: 'Refresh', onPress: () => { void reload($) } }],
+    rows: [],
+  }
+  // A restore rewrites files: it asks first.
+  if (asked && asked.kind === 'restore') {
+    const what = asked.changed === 0 ? 'Nothing differs' : `Restore ${asked.changed} file${asked.changed === 1 ? '' : 's'} to ${asked.when}`
+    page.extra = (
+      <Box flexDirection="row" height={1} overflow="hidden">
+        <Text color={WARN} wrap="truncate-end">{`${what}? (now is saved first) `}</Text>
+        <Box key="restoreyesbox" flexShrink={0}><Button key="restore-yes" plain hover={HOVER_BUTTON} onPress={() => { void confirmRestore($) }}><Text color={WARN} bold> Restore </Text></Button></Box>
+        <Box key="restorenobox" flexShrink={0}><Button key="restore-no" plain hover={HOVER} onPress={() => { void cancelConfirm($) }}><Text> Cancel </Text></Button></Box>
+      </Box>
+    )
+  }
+  page.rows.push(node('save-point:row', (
+    <Box key="savepointbox" height={1}>
+      <Button key="save-point" plain hover={HOVER_BUTTON} onPress={() => { void savePointNow($) }}>
+        <Text color={ACCENT}>{`${glyph('addNote')} Save a restore point now`}</Text>
+      </Button>
+    </Box>
+  )))
+  page.rows.push(node('about', <Text dimColor wrap="truncate-end">One is kept each time Claude starts on your message. Files only: not the database, not git-ignored files.</Text>))
+  page.rows.push(node('gap', <Text> </Text>))
+  if (points.length === 0) {
+    page.rows.push(node('none', <Text color="gray">No restore point yet: the first is taken when Claude starts on your next message.</Text>))
+    return page
+  }
+  const whens = points.map(one => whenOf(one.at))
+  const whenWidth = Math.max(...whens.map(one => one.length))
+  const restoreLabel = ` ${glyph('discard') ? glyph('discard') + ' ' : ''}restore `
+  points.forEach((one, i) => {
+    const differs = one.changed === 0 ? 'same as now' : `${one.changed} file${one.changed === 1 ? '' : 's'} differ`
+    const label = one.kind === 'turn' ? `before “${one.label}”` : one.label
+    const room = Math.max(8, width - whenWidth - 2 - 2 - differs.length - [...restoreLabel].length - 1)
+    const shown = fit(label, room)
+    const pad = ' '.repeat(Math.max(1, room - [...shown].length + 2))
+    page.rows.push(node(`point:${one.ref}`, (
+      <Box key={`pointrow:${one.ref}`} flexDirection="row" height={1} overflow="hidden">
+        <Box key={`pointbox:${one.ref}`} flexGrow={1} overflow="hidden">
+          <Button key={`point:${i}`} plain hover={HOVER} onPress={() => { void openView($, { kind: 'checkpoint', ref: one.ref }) }}>
+            <Text color={ACCENT} bold>{whens[i]!.padEnd(whenWidth)}</Text>
+            <Text>  </Text>
+            <Text dimColor={one.kind !== 'turn'} italic={one.kind !== 'turn'}>{shown}</Text>
+            <Text>{pad}</Text>
+            <Text color={one.changed === 0 ? undefined : WARN} dimColor={one.changed === 0}>{differs}</Text>
+          </Button>
+        </Box>
+        {rowButtons(el, `pointacts:${i}`, [{ key: `restore:${i}`, label: restoreLabel.trim(), color: one.changed === 0 ? 'gray' : WARN, onPress: () => { void askRestore($, one) } }])}
+      </Box>
+    )))
+  })
+  return page
+}
+
 // ---------------------------------------------------------------- Commits
 
 const GRAPH_COLORS = ['cyan', 'green', 'yellow', 'magenta', 'blue', 'red']
@@ -514,6 +580,8 @@ export function diffPage(
   el: El, $: EngineInterface, one: Shown, current: View, notes: Note[], draft: NoteTarget | null, width: number,
   // clawd-debug is loaded: a file can be opened in its debugger.
   canDebug = false,
+  // A restore point's preview: the point, for its Restore button.
+  point?: Checkpoint,
 ): Page {
   const { Box, Text, Button } = el
   // The notes on one line of this diff, drawn right under it.
@@ -578,6 +646,16 @@ export function diffPage(
   }
   for (const [i, line] of (one.detail ?? '').split('\n').entries()) {
     if (line.trim() !== '') page.rows.push(node(`detail:${i}`, <Text color="gray" wrap="truncate-end">{line}</Text>))
+  }
+  // A restore point's preview: restore from here.
+  if (current.kind === 'checkpoint' && point && one.diffs.length > 0) {
+    page.rows.push(node('point-restore', (
+      <Box key="pointrestorebox" height={1}>
+        <Button key="point-restore" plain hover={HOVER_BUTTON} onPress={() => { void askRestore($, point).then(() => selectTab($, 'restore')) }}>
+          <Text color={WARN} bold>{`${glyph('discard')} Restore to this point`}</Text>
+        </Button>
+      </Box>
+    )))
   }
   if (one.diffs.length === 0 && !one.source) page.rows.push(node('nothing', <Text color="gray">Nothing to show.</Text>))
   if (one.source) {

@@ -1,5 +1,5 @@
 // 'diff' is no tab of the row: it opens over the tab it came from.
-export type Tab = 'files' | 'changes' | 'diff' | 'commits'
+export type Tab = 'files' | 'changes' | 'diff' | 'commits' | 'restore'
 
 export type ChangeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
 
@@ -42,6 +42,8 @@ export type View =
   | { kind: 'turn' }
   | { kind: 'file'; path: string }
   | { kind: 'commit'; hash: string }
+  // What restoring a restore point would change: from now back to it.
+  | { kind: 'checkpoint'; ref: string }
 
 export type Repo = {
   // Absolute path of the repository's top folder; empty outside a repository.
@@ -68,7 +70,25 @@ export type Shown = {
 export type Touch = { at: number; tool: string; count: number }
 
 // A question the panel is asking before it does something it cannot undo.
-export type Confirm = { kind: 'discard'; path: string; how: 'clean' | 'remove' | 'restore' }
+export type Confirm =
+  | { kind: 'discard'; path: string; how: 'clean' | 'remove' | 'restore' }
+  | { kind: 'restore'; ref: string; when: string; label: string; changed: number }
+
+// A restore point: the working tree as it stood (tracked and new files, not
+// ignored ones), kept as a commit under refs/clawd-git/checkpoints/ so git's
+// cleanup keeps it, outside every branch. Taken when a turn begins, when you
+// save one, and before a restore (so the restore can be undone).
+export type Checkpoint = {
+  ref: string
+  commit: string
+  tree: string
+  at: number
+  // The message the turn began with; "saved by you"; or what the restore replaced.
+  label: string
+  kind: 'turn' | 'manual' | 'undo'
+  // Files that differ between it and the working tree now.
+  changed: number
+}
 
 // A commit message being drafted for what is staged.
 export type Draft = { state: 'writing' | 'ready' | 'error'; text: string }
@@ -116,6 +136,8 @@ declare module 'claude-code' {
       // This turn: where it began, and the files it has changed so far.
       turnBase: TurnBase | null
       turnFiles: string[]
+      // The restore points of this repository, newest first.
+      checkpoints: Checkpoint[]
       // Review notes on diff lines, and the line a note is being written for.
       notes: Note[]
       noteDraft: NoteTarget | null

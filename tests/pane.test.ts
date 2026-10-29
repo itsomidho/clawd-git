@@ -35,7 +35,7 @@ function ok(stdout: string, exitCode = 0) {
 type Seen = { argv: string[][]; stdin: (string | undefined)[]; prompts: string[] }
 
 // A fake repository at /work/app: one changed file, one new file, two commits.
-function world(on: On, opts: { diff?: string; status?: string; staged?: string; isOwnClock?: boolean; rootFile?: string } = {}): Seen {
+function world(on: On, opts: { diff?: string; status?: string; staged?: string; isOwnClock?: boolean; rootFile?: string; points?: string } = {}): Seen {
   const seen: Seen = { argv: [], stdin: [], prompts: [] }
   let trees = 0
   on('session.cwd', () => ({ value: '/work/app' }))
@@ -48,8 +48,11 @@ function world(on: On, opts: { diff?: string; status?: string; staged?: string; 
     const args = e.argv.join(' ')
     // Snapshots of the working tree: each write-tree a new tree.
     if (args.includes('rev-parse --absolute-git-dir')) return ok('/work/app/.git\n')
+    if (args.includes('rev-parse --path-format=absolute --git-dir --git-common-dir')) return ok('/work/app/.git\n/work/app/.git\n')
+    if (args.includes('for-each-ref')) return ok(opts.points ?? '')
     if (e.argv[1] === 'write-tree') return ok(`tree${++trees}\n`)
-    if (args.includes('diff --name-only tree')) return ok('src/a.ts\n')
+    if (args.includes('--name-only') && args.includes(' tree')) return ok('src/a.ts\n')
+    if (e.argv.includes('commit-tree')) return ok('commitN\n')
     if (args.includes('diff --no-ext-diff tree')) return ok(DIFF)
     if (e.argv[0] === 'which') return ok(e.argv[1] === 'code' ? '/usr/bin/code\n' : '', e.argv[1] === 'code' ? 0 : 1)
     if (args.includes('rev-parse --show-toplevel')) return ok('/work/app\n')
@@ -69,6 +72,8 @@ function world(on: On, opts: { diff?: string; status?: string; staged?: string; 
     : e.path === '/work/app/src' ? [file('a.ts'), file('b.ts')] : [] }))
   on('fs.stat', () => ({ value: { kind: 'file' as const, size: 8, mtimeMs: 1, isLink: false } }))
   on('fs.read', () => ({ value: 'one\ntwo\n' }))
+  on('fs.exists', () => ({ value: true }))
+  on('fs.write', () => ({ value: undefined }))
   on('ui.panes', () => ({ value: [{ id: 'git', title: 'Git', isShown: true, isFocused: false, isPlaced: true }] }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.scroll', () => ({}))
@@ -559,5 +564,55 @@ test('the Files tree lines up git marks on the right and bars the selected file'
   await ui.press({ key: 'back' })
   expect((await ui.find({ key: 'file:src/a.ts' }))?.text).toMatch(/^▌/)
   expect((await ui.find({ key: 'file:src/b.ts' }))?.text).toMatch(/^ /)
+  await ui.unmount()
+})
+
+// Two restore points as git for-each-ref lists them: ref, commit, tree, body.
+const POINTS = [
+  ['refs/clawd-git/checkpoints/00000000200000', 'commitB', 'treeB', JSON.stringify({ at: 200_000, label: 'saved by you', kind: 'manual' })],
+  ['refs/clawd-git/checkpoints/00000000100000', 'commitA', 'treeA', JSON.stringify({ at: 100_000, label: 'Fix the cart', kind: 'turn' })],
+].map(one => one.join('\u001f') + '\u001e\n').join('')
+
+test('Restore lists the points; a row previews one; Restore asks, then restores through git', async ($, on) => {
+  const seen = world(on, { points: POINTS })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:restore' })
+  expect((await ui.find({ key: 'tab:restore' }))?.text).toContain('Restore')
+  const first = await ui.find({ key: 'point:0' })
+  expect(first?.text).toContain('saved by you')
+  expect(first?.text).toContain('1 file differ')
+  expect((await ui.find({ key: 'point:1' }))?.text).toContain('before “Fix the cart”')
+  expect(await ui.find({ key: 'save-point' })).toBeDefined()
+
+  // A row opens what restoring would change: from now back to the point.
+  await ui.press({ key: 'point:1' })
+  expect((await ui.find({ type: 'Code' }))?.props.format).toBe('diff')
+  expect(seen.argv.some(argv => argv.includes('diff') && argv.at(-1) === 'treeA')).toBe(true)
+
+  // Restore from the preview asks first, on the Restore tab; Cancel does nothing.
+  await ui.press({ key: 'point-restore' })
+  expect(await ui.find({ key: 'restore-yes' })).toBeDefined()
+  await ui.press({ key: 'restore-no' })
+  expect(seen.argv.some(argv => argv.includes('restore'))).toBe(false)
+
+  // Yes: the present is kept as a point, then git restores the files.
+  await ui.press({ key: 'restore:1' })
+  await ui.press({ key: 'restore-yes' })
+  const restore = seen.argv.find(argv => argv.includes('restore'))
+  expect(restore?.join(' ')).toContain('restore --source=commitA --worktree -- :/')
+  const saveFirst = seen.argv.findIndex(argv => argv.includes('commit-tree'))
+  expect(saveFirst).toBeGreaterThan(-1)
+  expect(saveFirst).toBeLessThan(seen.argv.indexOf(restore!))
+  await ui.unmount()
+})
+
+test('Save a restore point now writes one in the snapshot repository', async ($, on) => {
+  const seen = world(on)
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:restore' })
+  expect((await ui.find({ key: 'tab:restore' }))?.text).toBeDefined()
+  await ui.press({ key: 'save-point' })
+  const named = seen.argv.find(argv => argv.includes('update-ref'))
+  expect(named?.join(' ')).toMatch(/update-ref refs\/clawd-git\/checkpoints\/\d{14} commitN/)
   await ui.unmount()
 })

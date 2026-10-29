@@ -8,11 +8,12 @@ import type { EngineInterface } from 'claude-code'
 
 import type { Change, Entry, FileDiff, Repo, Shown, View } from '../types'
 import { LOG_FORMAT, SEP, parseLog, parseNumstat, parseStatus, sortEntries, splitDiff } from './git'
+import { labelOf, listPoints, readPoints, savePoint, whenOf } from './checkpoints'
 import { iconSetFor } from './icons'
 import type { IconMode } from './icons'
 import {
   DIFF_CHARS, DIR_ENTRIES, EMPTY_REPO, EMPTY_SHOWN, FULL_EVERY, LOG_LIMIT, PANE, SOURCE_LINES, UNTRACKED_IN_DIFF,
-  ctx, describe, git, isNew, viewKey,
+  ctx, describe, git, isNew, sideGit, snapshotTree, viewKey,
 } from './shared'
 
 const isShown = atom({ plugin: 'clawd-git', key: 'isShown' } as const, true)
@@ -95,33 +96,8 @@ export async function repoRoot($: EngineInterface): Promise<string> {
   return topOf($)
 }
 
-// The working tree as it stands, as a git tree object: tracked and new files,
-// ignored ones left out. Written through a copy of the index, so git's own
-// index, the files and the history are untouched; a copy keeps git's stat
-// cache, so only files changed since the last `git add` are read.
-let snapshots = 0
-export async function snapshotTree($: EngineInterface, root: string): Promise<string | undefined> {
-  const dir = await git($, root, ['rev-parse', '--absolute-git-dir']).catch(() => undefined)
-  if (!dir || dir.exitCode !== 0) return undefined
-  const gitDir = dir.stdout.trim()
-  const index = `${gitDir}/clawd-git-snapshot-${++snapshots}.index`
-  try {
-    const hasIndex = await $.fs.stat(`${gitDir}/index`).then(() => true).catch(() => false)
-    if (hasIndex) await $.process.run(['cp', `${gitDir}/index`, index], { timeoutMs: 15_000 })
-    const env = { GIT_INDEX_FILE: index }
-    const add = await $.process.run(['git', 'add', '-A'], { cwd: root, env, timeoutMs: 120_000 })
-    if (add.exitCode !== 0) return undefined
-    const tree = await $.process.run(['git', 'write-tree'], { cwd: root, env, timeoutMs: 30_000 })
-    return tree.exitCode === 0 ? tree.stdout.trim() : undefined
-  } catch {
-    return undefined
-  } finally {
-    await $.process.run(['rm', '-f', index], { timeoutMs: 5000 }).catch(() => undefined)
-  }
-}
-
 // A new turn of Claude's begins: remember the tree as it stands.
-export async function startTurn($: EngineInterface, turnId: string) {
+export async function startTurn($: EngineInterface, turnId: string, text = '') {
   const root = await topOf($)
   if (root === '') return
   const tree = await snapshotTree($, root)
@@ -129,6 +105,8 @@ export async function startTurn($: EngineInterface, turnId: string) {
   const at = await $.clock.now()
   await update($, turnBase, () => ({ tree, turnId, at }))
   await update($, turnFiles, () => [])
+  // The same tree is the turn's restore point.
+  await savePoint($, root, labelOf(text), 'turn', tree).catch(() => undefined)
 }
 
 // The files this turn has changed so far: the start's tree against now's.
@@ -138,7 +116,7 @@ export async function updateTurnFiles($: EngineInterface) {
   if (!base || root === '') return
   const now = await snapshotTree($, root)
   if (!now) return
-  const out = await git($, root, ['diff', '--name-only', base.tree, now]).catch(() => undefined)
+  const out = await sideGit($, root, ['diff', '--name-only', base.tree, now]).catch(() => undefined)
   const files = (out?.stdout ?? '').split('\n').filter(Boolean)
   if (isNew('turnFiles', files)) await update($, turnFiles, () => files)
 }
@@ -205,13 +183,30 @@ async function readShown($: EngineInterface, state: Repo, one: View): Promise<Sh
     if (!base) return { ...EMPTY_SHOWN, of, title: 'This turn', detail: 'No turn has started since the panel loaded.' }
     const now = await snapshotTree($, root)
     if (!now) return { ...EMPTY_SHOWN, of, title: 'This turn', detail: 'Could not read the working tree.' }
-    const out = await git($, root, ['diff', '--no-ext-diff', base.tree, now])
+    const out = await sideGit($, root, ['diff', '--no-ext-diff', base.tree, now])
     const capped = capDiffs(splitDiff(out.stdout))
     const n = capped.diffs.length
     return {
       of,
       title: 'This turn',
       detail: n === 0 ? 'Nothing changed since your last message.' : `${n} file${n === 1 ? '' : 's'} changed since your last message`,
+      ...capped,
+    }
+  }
+  if (one.kind === 'checkpoint') {
+    const point = (await listPoints($, root)).find(each => each.ref === one.ref)
+    const title = point ? `Restore point · ${whenOf(point.at)}` : 'Restore point'
+    if (!point) return { ...EMPTY_SHOWN, of, title, detail: 'That restore point is gone.' }
+    const now = await snapshotTree($, root)
+    if (!now) return { ...EMPTY_SHOWN, of, title, detail: 'Could not read the working tree.' }
+    // From now back to the point: what a restore would do.
+    const out = await sideGit($, root, ['diff', '--no-ext-diff', now, point.tree])
+    const capped = capDiffs(splitDiff(out.stdout))
+    const n = capped.diffs.length
+    return {
+      of,
+      title,
+      detail: `${point.kind === 'turn' ? `Before: ${point.label}` : point.label}\n${n === 0 ? 'The files are as they were then: nothing to restore.' : `Restoring changes ${n} file${n === 1 ? '' : 's'}: what is red goes, what is green comes back.`}`,
       ...capped,
     }
   }
@@ -310,6 +305,7 @@ async function refreshViews($: EngineInterface, state: Repo) {
     const rows = out.exitCode === 0 ? parseLog(out.stdout) : []
     if (isNew('log', rows)) await update($, log, () => rows)
   }
+  if (current === 'restore') await readPoints($, state.root)
   if (current === 'diff') {
     const next = await readShown($, state, await read($, view))
     if (isNew('shown', next)) await update($, shown, () => next)

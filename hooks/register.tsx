@@ -47,7 +47,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: COMMAND,
       description: 'Show or hide the git panel: files, changes and commits',
-      argumentHint: '[files | changes | commits | diff | turn | close]',
+      argumentHint: '[files | changes | commits | restore | diff | turn | close]',
     }).catch(() => {})
     ctx.written.clear()
     ctx.needsLog = true
@@ -78,7 +78,7 @@ export const register: Register = (on, options) => {
   // A turn of the main conversation begins: remember the tree, before Claude
   // changes anything, so "This turn" can show exactly what it changed.
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) await startTurn($, e.turnId).catch(() => {})
+    if (e.agentId === undefined) await startTurn($, e.turnId, e.text).catch(() => {})
     return next(e)
   }).catch(($, e, next) => next(e))
 

@@ -1,6 +1,6 @@
 {
   "name": "clawd-git",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A live git panel beside the conversation: the file tree, changes, colored diffs and the commit graph; marks what Claude changed, stages, commits and asks Claude to review",
   "author": {
     "name": "Omid Hosseini",
