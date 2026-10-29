@@ -1,12 +1,12 @@
 # clawd-git
 
-[![Latest release](https://img.shields.io/github/v/release/itsomidho/clawd-git?label=release&color=7fbeb3)](https://github.com/itsomidho/clawd-git/releases)
+[![Latest release](https://img.shields.io/github/v/release/itsomidho/clawd-git?label=release&color=7fbeb3)](https://github.com/itsomidho/clawd-git/releases) [![Wiki](https://img.shields.io/badge/docs-wiki-7fbeb3)](https://github.com/itsomidho/clawd-git/wiki)
 
 A live git panel for [Claude Code](https://claude.com/claude-code), docked beside the conversation and styled like [clawd-statusbar](https://github.com/itsomidho/clawd-statusbar). It shows the files, the changes and the commit graph as Claude works, marks the files Claude changed, and lets you stage, commit, and ask Claude to review a diff without leaving the session.
 
-![The panel through one session: Claude's edits marked in Files and Changes, the By Claude filter, a diff with Review, staging, a drafted commit message and the commit graph](docs/demo.gif)
+![The panel through one real session: Claude changes two files, marked ✦ in Files and Changes; a diff, the commit graph, and the turn's restore point](docs/demo.gif)
 
-<sub>One session, time-lapsed: Claude edits two files, which show up marked ✦; Changes narrows to Claude's files; a diff opens and goes to Claude for review; both files are staged, a commit message is drafted and committed, and the commit graph shows it.</sub>
+<sub>One real session, recorded: Claude adds a coupon and a README line; both files show up marked ✦; Changes lists them, a diff opens, then the commit graph, and Restore shows the point kept before Claude's turn.</sub>
 
 ## What it shows
 
@@ -97,7 +97,21 @@ In `/config`:
 claude plugin validate .
 claude plugin test .
 node --import ./tests/git/loader.mjs --test 'tests/git/*.test.mjs'   # restore points against real git
-python3 docs/demo_gif.py docs/demo.gif   # needs Pillow and FiraCode Nerd Font Mono
 ```
 
 The hooks live in `hooks/`: `register.tsx` wires them, `data.ts` reads git and the disk, `actions.ts` is what a press does, `pages.tsx` builds each tab, `draw.tsx` draws the frames, `checkpoints.ts` keeps and restores restore points, `git.ts` and `icons.ts` are pure helpers with their own tests.
+
+## The clawd family
+
+clawd-git is one of seven plugins in the [`itsomidho` marketplace](https://github.com/itsomidho/claude-plugins); each works on its own:
+
+- [clawd-statusbar](https://github.com/itsomidho/clawd-statusbar): a framed status bar under the prompt: context, usage limits with reset times, git state, MR/PR pipeline status, and Clawd frying an egg while Claude works
+- [clawd-tasks](https://github.com/itsomidho/clawd-tasks): a live task board: Claude's plan, and under each task the steps it took, how long it ran, the files it changed and the agents it started
+- [clawd-guard](https://github.com/itsomidho/clawd-guard): a safety net: stops risky shell commands, writes to secret files and leaked keys before they run
+- [clawd-notify](https://github.com/itsomidho/clawd-notify): tells you when Claude is done or needs you: a desktop notification, a chime, and optionally a push to your phone
+- [clawd-logs](https://github.com/itsomidho/clawd-logs): watches your project's error logs (WordPress debug.log, nginx, any log file): new errors show above the prompt, grouped, with a Fix button, and Claude hears about the ones its own work caused
+- [clawd-debug](https://github.com/itsomidho/clawd-debug): a step debugger beside the conversation: set a breakpoint, let Claude run your code with test data, and step line by line while every variable and line value shows
+
+## License
+
+MIT
