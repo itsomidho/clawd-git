@@ -35,7 +35,7 @@ function ok(stdout: string, exitCode = 0) {
 type Seen = { argv: string[][]; stdin: (string | undefined)[]; prompts: string[] }
 
 // A fake repository at /work/app: one changed file, one new file, two commits.
-function world(on: On, opts: { diff?: string; status?: string; staged?: string; isOwnClock?: boolean; rootFile?: string; points?: string } = {}): Seen {
+function world(on: On, opts: { diff?: string; status?: string; staged?: string; isOwnClock?: boolean; rootFile?: string; points?: string; log?: string } = {}): Seen {
   const seen: Seen = { argv: [], stdin: [], prompts: [] }
   let trees = 0
   on('session.cwd', () => ({ value: '/work/app' }))
@@ -61,6 +61,7 @@ function world(on: On, opts: { diff?: string; status?: string; staged?: string; 
     if (args.includes('diff --numstat')) return ok('2\t1\tsrc/a.ts\n')
     if (args.includes('diff --no-index')) return ok(NEW_FILE, 1)
     if (args.includes('diff HEAD')) return ok(opts.diff ?? DIFF)
+    if (args.includes(' log ') && opts.log) return ok(opts.log)
     if (args.includes(' log ')) return ok('* \u001fabc1234\u001fHEAD -> main\u001fAdd a\u001fOmid\u001f1 hour ago\n* \u001fdef5678\u001f\u001fFirst\u001fOmid\u001f2 days ago\n')
     if (args.includes('ls-files')) return ok('src/a.ts\nsrc/b.ts\nREADME.md\nnotes.md\n')
     if (args.includes('check-ignore')) return ok('node_modules/\n')
@@ -614,5 +615,19 @@ test('Save a restore point now writes one in the snapshot repository', async ($,
   await ui.press({ key: 'save-point' })
   const named = seen.argv.find(argv => argv.includes('update-ref'))
   expect(named?.join(' ')).toMatch(/update-ref refs\/clawd-git\/checkpoints\/\d{14} commitN/)
+  await ui.unmount()
+})
+
+
+test('a commit row fills the card exactly: a cut subject leaves the age whole at the right edge', async ($, on) => {
+  const long = 'Merge branch main into a branch with a very long name that cannot fit the panel at all'
+  world(on, { log: `* \u001fc04c691\u001forigin/feature\u001f${long}\u001fOmid\u001f6 days ago\n` })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:commits' })
+  const text = (await ui.find({ key: 'c:c04c691:0' }))?.text ?? ''
+  expect(text.endsWith('  6 days')).toBe(true)
+  expect(text).toContain('…')
+  // The card's text area: the pane less its frame, padding and scrollbar.
+  expect([...text].length).toBe(PANE.props.bodyColumns - 5)
   await ui.unmount()
 })

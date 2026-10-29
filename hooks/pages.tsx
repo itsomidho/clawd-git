@@ -557,18 +557,23 @@ export function commitsPage(el: El, $: EngineInterface, state: Repo, rows: LogRo
     const refs = row.refs ? ` ${row.refs}` : ''
     const age = row.age ? `  ${row.age.replace(/ ago$/, '')}` : ''
     const shownRefs = fit(refs, Math.max(0, Math.floor((width - row.graph.length) / 3)))
-    const room = Math.max(4, width - row.graph.length - row.hash.length - 2 - shownRefs.length - age.length)
+    // The subject's room, less one cell kept for the space before the age.
+    const room = Math.max(4, width - row.graph.length - row.hash.length - 2 - shownRefs.length - age.length - 1)
     const subject = fit(slid(row.subject ?? '', row.graph.length + row.hash.length + 2 + shownRefs.length + (row.subject ?? '').length + age.length), room)
-    const pad = ' '.repeat(Math.max(1, room - subject.length + 1))
+    // The row fills the card exactly, so the ages line up on the right; one
+    // cell more and the last word (the age's unit) would wrap out of sight.
+    const pad = ' '.repeat(room - [...subject].length + 1)
     page.rows.push(node(`crow:${i}`, (
       <Box key={`crow:${row.hash}:${i}`} height={1} overflow="hidden">
         <Button key={`c:${row.hash}:${i}`} plain hover={HOVER} onPress={() => { void openView($, { kind: 'commit', hash: row.hash! }) }}>
-          {graph}
-          <Text color="gray">{' ' + row.hash}</Text>
-          {shownRefs !== '' && <Text color="cyan" bold>{shownRefs}</Text>}
-          <Text>{' ' + subject}</Text>
-          <Text>{pad}</Text>
-          <Text color="gray" dimColor>{age}</Text>
+          <Text wrap="truncate-end">
+            {graph}
+            <Text color="gray">{' ' + row.hash}</Text>
+            {shownRefs !== '' && <Text color="cyan" bold>{shownRefs}</Text>}
+            <Text>{' ' + subject}</Text>
+            <Text>{pad}</Text>
+            <Text color="gray" dimColor>{age}</Text>
+          </Text>
         </Button>
       </Box>
     )))
