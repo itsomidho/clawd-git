@@ -491,7 +491,9 @@ export function restorePage(el: El, $: EngineInterface, points: Checkpoint[], as
       </Button>
     </Box>
   )))
-  page.rows.push(node('about', <Text dimColor wrap="truncate-end">One is kept each time Claude starts on your message. Files only: not the database, not git-ignored files.</Text>))
+  // Two short lines, so neither is cut at the card's edge.
+  page.rows.push(node('about', <Text dimColor wrap="truncate-end">One is kept each time Claude starts on your message.</Text>))
+  page.rows.push(node('about:2', <Text dimColor wrap="truncate-end">Files only: not the database, not git-ignored files.</Text>))
   page.rows.push(node('gap', <Text> </Text>))
   if (points.length === 0) {
     page.rows.push(node('none', <Text color="gray">No restore point yet: the first is taken when Claude starts on your next message.</Text>))
