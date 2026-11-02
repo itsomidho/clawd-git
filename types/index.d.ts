@@ -123,6 +123,9 @@ export type MrState = {
   error?: string
 }
 
+// The thread a reply is being written to.
+export type ReplyTarget = { id: string; where: string; author: string }
+
 // A commit message being drafted for what is staged.
 export type Draft = { state: 'writing' | 'ready' | 'error'; text: string }
 
@@ -178,6 +181,8 @@ declare module 'claude-code' {
       // resolved threads are listed too.
       mr: MrState
       showResolved: boolean
+      // The thread a reply is being written to, while its field is open.
+      replyTo: ReplyTarget | null
       // The icon set this machine's fonts can draw, found when the session starts.
       iconSet: 'line' | 'nerd' | 'outline' | 'simple'
     }

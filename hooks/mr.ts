@@ -28,10 +28,10 @@ async function findGlab($: EngineInterface): Promise<string | undefined> {
   return undefined
 }
 
-async function glab($: EngineInterface, root: string, args: string[]) {
+async function glab($: EngineInterface, root: string, args: string[], stdin?: string) {
   const bin = await findGlab($)
   if (!bin) return { exitCode: 127, stdout: '', stderr: 'glab not found' }
-  return $.process.run([bin, ...args], { cwd: root, timeoutMs: 20_000 })
+  return $.process.run([bin, ...args], { cwd: root, timeoutMs: 20_000, ...(stdin !== undefined ? { stdin } : {}) })
     .catch(error => ({ exitCode: 1, stdout: '', stderr: String(error) }))
 }
 
@@ -191,6 +191,18 @@ export async function confirmResolve($: EngineInterface, root: string, branch: s
   await update($, mr, old => ({ ...old, threads: old.threads.map(one => (one.id === asked.id ? { ...one, isResolved: true } : one)) }))
   void refreshMr($, root, branch, { force: true })
   return { ok: true, text: `Resolved the thread on ${asked.where}.` }
+}
+
+// Adds `text` to the thread as a reply of yours: everyone on the merge request sees it.
+export async function postReply($: EngineInterface, root: string, branch: string, id: string, text: string): Promise<{ ok: boolean; text: string }> {
+  const state = await read($, mr)
+  if (!state.iid) return { ok: false, text: 'No merge request to reply on.' }
+  // The body as JSON on stdin: the text goes as it is, whatever it holds
+  // (older glab read a -f value in brackets as an array).
+  const out = await glab($, root, ['api', '-X', 'POST', '-H', 'Content-Type: application/json', `projects/:fullpath/merge_requests/${state.iid}/discussions/${id}/notes`, '--input', '-'], JSON.stringify({ body: text }))
+  if (out.exitCode !== 0) return { ok: false, text: `Could not reply: ${firstLine(out.stderr || out.stdout) || 'glab failed'}` }
+  void refreshMr($, root, branch, { force: true })
+  return { ok: true, text: 'Replied on GitLab.' }
 }
 
 // The thread (or the whole request) in the browser.

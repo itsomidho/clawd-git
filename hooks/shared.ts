@@ -263,8 +263,10 @@ export type Page = {
   sub?: Node
   // What the page can do now: each fills the header's key bar slot of its key.
   actions: Action[]
-  // A pinned line under the title (the search field, a question, a draft).
+  // A pinned line under the title (the search field, a question, a draft),
+  // `extraRows` tall (one when not given).
   extra?: Node
+  extraRows?: number
   rows: Row[]
 }
 

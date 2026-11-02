@@ -43,6 +43,7 @@ const noteDraft = atom({ plugin: 'clawd-git', key: 'noteDraft' } as const, null)
 const checkpoints = atom({ plugin: 'clawd-git', key: 'checkpoints' } as const, [])
 const mr = atom({ plugin: 'clawd-git', key: 'mr' } as const, { status: 'idle', branch: '', threads: [], at: 0 })
 const showResolved = atom({ plugin: 'clawd-git', key: 'showResolved' } as const, false)
+const replyTo = atom({ plugin: 'clawd-git', key: 'replyTo' } as const, null)
 
 // The tab row between the cards, as clawd-debug draws its tabs: pills, the lit
 // one filled with the accent, each with its count.
@@ -254,14 +255,14 @@ function drawPage(
     else blocks.push({ rows: [row], at: i })
   })
   const background = ctx.config.background === 'none' ? undefined : ctx.config.background
-  const extra = page.extra ? 1 : 0
+  const extra = page.extra ? (page.extraRows ?? 1) : 0
   return (
     <Box flexDirection="column" width={width} height={height} backgroundColor={background}>
       {header as never}
       {tabs as never}
       <Box borderStyle="round" borderColor={BORDER} paddingX={1} flexDirection="column" width={width} height={room + extra + 3}>
         {titleRow(el, page, side)}
-        {page.extra ? <Box height={1} overflow="hidden">{page.extra as never}</Box> : null}
+        {page.extra ? <Box height={extra} overflow="hidden" flexDirection="column">{page.extra as never}</Box> : null}
         {blocks.map(block => {
           const first = block.rows[0]!
           const isCode = first.kind !== 'node'
@@ -327,8 +328,8 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
     const [isSessionOnly, asked, drafting] = await Promise.all([read($, sessionOnly), read($, confirm), read($, draft)])
     page = changesPage(el, $, state, claude, isSessionOnly, asked, drafting, { files: changedThisTurn, isOn: base !== null }, notesList, inner, canDebug)
   } else if (current === 'comments') {
-    const [threads, isShowingResolved, asked] = await Promise.all([read($, mr), read($, showResolved), read($, confirm)])
-    page = commentsPage(el, $, threads, isShowingResolved, asked, state.branch, inner)
+    const [threads, isShowingResolved, asked, replying] = await Promise.all([read($, mr), read($, showResolved), read($, confirm), read($, replyTo)])
+    page = commentsPage(el, $, threads, isShowingResolved, asked, replying, state.branch, inner)
   } else if (current === 'restore') {
     page = restorePage(el, $, await read($, checkpoints), await read($, confirm), inner)
   } else if (current === 'diff') {
@@ -347,7 +348,7 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
       ]
     : []
   const height = Math.max(PINNED + 4, rows)
-  const room = height - PINNED - (page.extra ? 1 : 0)
+  const room = height - PINNED - (page.extra ? (page.extraRows ?? 1) : 0)
   const offset = Math.min(Math.max(0, page.rows.length - room), Math.max(0, offsets[page.key] ?? 0))
   ctx.lastPage = { key: page.key, total: page.rows.length, room }
   const noted = new Set(notesList.map(noteKey))

@@ -760,3 +760,44 @@ test('Comments on a GitHub repository says it reads GitLab only', async ($, on) 
   expect(calls).toEqual([])
   await ui.unmount()
 })
+
+test('Reply opens a field under the title; Enter posts it on the thread, Cancel drops it', async ($, on) => {
+  const calls: string[] = []
+  const seen = world(on, { glab: gitlab(calls) })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:comments' })
+  // Cancel closes the field and posts nothing.
+  await ui.press({ key: 'reply:0' })
+  expect(await ui.find({ text: /Reply to reviewer on .*view\.php:12/ })).toBeDefined()
+  expect(await ui.find({ key: 'reply-input' })).toBeDefined()
+  await ui.press({ key: 'reply-cancel' })
+  expect(await ui.find({ key: 'reply-input' })).toBeUndefined()
+  // An empty reply only closes the field.
+  await ui.press({ key: 'reply:0' })
+  await ui.input({ key: 'reply-input', text: '   ' })
+  expect(await ui.find({ key: 'reply-input' })).toBeUndefined()
+  expect(calls.some(one => one.includes('-X POST'))).toBe(false)
+  // Enter posts the text, kept whole (a second line, quotes, an @), as a note on that thread.
+  await ui.press({ key: 'reply:0' })
+  await ui.input({ key: 'reply-input', text: 'Fixed in the next push.\nIt\'s "esc_html" now, @reviewer' })
+  const post = calls.find(one => one.includes('-X POST'))
+  expect(post).toBe('api -X POST -H Content-Type: application/json projects/:fullpath/merge_requests/42/discussions/aaa111/notes --input -')
+  const body = seen.stdin[seen.argv.findIndex(argv => argv.includes('POST'))]
+  expect(JSON.parse(body ?? '{}')).toEqual({ body: 'Fixed in the next push.\nIt\'s "esc_html" now, @reviewer' })
+  expect(await ui.find({ key: 'reply-input' })).toBeUndefined()
+  expect(await ui.find({ text: /Replied on GitLab/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('A reply GitLab refuses keeps the field open and says why', async ($, on) => {
+  world(on, { glab: (args: string) => (args.includes('-X POST')
+    ? { value: { exitCode: 1, stdout: '', stderr: 'ERROR: 403 Forbidden', isStdoutTruncated: false, isStderrTruncated: false } }
+    : gitlab([])(args)) })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:comments' })
+  await ui.press({ key: 'reply:0' })
+  await ui.input({ key: 'reply-input', text: 'Thanks' })
+  expect(await ui.find({ text: /Could not reply: ERROR: 403 Forbidden/ })).toBeDefined()
+  expect(await ui.find({ key: 'reply-input' })).toBeDefined()
+  await ui.unmount()
+})

@@ -5,11 +5,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Change, Checkpoint, Confirm, MrThread, Note, NoteTarget, Repo, Tab, View } from '../types'
+import type { Change, Checkpoint, Confirm, MrThread, Note, NoteTarget, ReplyTarget, Repo, Tab, View } from '../types'
 import { restorePoint, savePoint, whenOf } from './checkpoints'
 import { refresh } from './data'
-import { confirmResolve, fixText, openWeb, refreshMr } from './mr'
-import { DRAFT_MODEL, EMPTY_REPO, SEARCH_RESULTS, ctx, git, viewKey } from './shared'
+import { confirmResolve, fixText, openWeb, postReply, refreshMr } from './mr'
+import { DRAFT_MODEL, EMPTY_REPO, PANE, SEARCH_RESULTS, ctx, git, viewKey } from './shared'
 
 const tab = atom({ plugin: 'clawd-git', key: 'tab' } as const, 'files')
 const back = atom({ plugin: 'clawd-git', key: 'back' } as const, 'changes')
@@ -29,6 +29,7 @@ const notes = atom({ plugin: 'clawd-git', key: 'notes' } as const, [])
 const noteDraft = atom({ plugin: 'clawd-git', key: 'noteDraft' } as const, null)
 const mr = atom({ plugin: 'clawd-git', key: 'mr' } as const, { status: 'idle', branch: '', threads: [], at: 0 })
 const showResolved = atom({ plugin: 'clawd-git', key: 'showResolved' } as const, false)
+const replyTo = atom({ plugin: 'clawd-git', key: 'replyTo' } as const, null)
 
 // ---------------------------------------------------------------- moving around
 
@@ -282,6 +283,32 @@ export async function openMrWeb($: EngineInterface, one?: MrThread) {
   await say($, done.text, done.ok ? 'ok' : 'error')
 }
 
+// Opens the reply field for a thread (and drops a Resolve question that was up).
+export async function startReply($: EngineInterface, target: ReplyTarget) {
+  await update($, confirm, () => null)
+  await update($, replyTo, () => target)
+  focusField($, 'reply-input')
+}
+
+export async function cancelReply($: EngineInterface) {
+  await update($, replyTo, () => null)
+}
+
+// Enter in the field: posts the reply; an empty one just closes the field.
+export async function sendReply($: EngineInterface, text: string) {
+  const target = await read($, replyTo)
+  if (!target) return
+  if (text.trim() === '') {
+    await update($, replyTo, () => null)
+    return
+  }
+  const state = await read($, repo)
+  const done = await postReply($, state.root, state.branch, target.id, text.trim())
+  // A failed post keeps the field open, so the text can be sent again.
+  if (done.ok) await update($, replyTo, () => null)
+  await say($, done.text, done.ok ? 'ok' : 'error')
+}
+
 export async function toggleResolved($: EngineInterface) {
   await update($, showResolved, isOn => !isOn)
 }
@@ -366,6 +393,20 @@ export async function draftToClaude($: EngineInterface) {
 // with the others, as a reviewer's comments on a pull request.
 export async function startNote($: EngineInterface, target: NoteTarget) {
   await update($, noteDraft, () => target)
+  focusField($, 'note-input')
+}
+
+// Puts the keyboard in a field just drawn: a click left the focus ring on the
+// button that opened it, where typed letters would press the bar's hotkeys.
+function focusField($: EngineInterface, key: string) {
+  if (ctx.config.placement !== 'side') return
+  void (async () => {
+    // The pane takes the keyboard first (an open pane with focus is that take);
+    // with text in the prompt box Claude Code keeps it there, and a click in
+    // the field still works.
+    await $.ui.open({ id: PANE, title: 'Git', focus: true })
+    await $.ui.focus({ requestId: PANE, key })
+  })().catch(() => undefined)
 }
 
 export async function cancelNote($: EngineInterface) {

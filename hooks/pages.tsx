@@ -3,14 +3,14 @@
 
 import type { EngineInterface } from 'claude-code'
 
-import type { Change, Checkpoint, Confirm, Draft, Entry, LogRow, MrState, Note, NoteTarget, Repo, Shown, Touch, View } from '../types'
+import type { Change, Checkpoint, Confirm, Draft, Entry, LogRow, MrState, Note, NoteTarget, ReplyTarget, Repo, Shown, Touch, View } from '../types'
 import {
   askDiscard, askRestore, askReview, cancelConfirm, confirmRestore, savePointNow, selectTab, cancelNote, clearNotes, closeSearch, collapseAll, commitDraft,
   confirmDiscard, debugFile, draftCommit, draftToClaude, dropDraft, goBack, openInEditor, openSearch, openView, reload,
   isDebuggable, removeNote, saveNote, search, sendReview, stage, toggleDir, toggleSessionOnly, unstage,
-  fixThreads, openMrWeb, resolveConfirmed, toggleResolved,
+  fixThreads, openMrWeb, resolveConfirmed, toggleResolved, startReply, cancelReply, sendReply,
 } from './actions'
-import { askResolve, hiddenThreads, isMine, openThreads } from './mr'
+import { askResolve, hiddenThreads, isMine, openThreads, whereOf } from './mr'
 import { KEEP, whenOf } from './checkpoints'
 import { fit, fitPath, fsTreeRows, hunkLines } from './git'
 import { iconFor, lineIconFor, outlineIconFor, simpleIconFor } from './icons'
@@ -760,7 +760,7 @@ const MR_MESSAGE: Record<Exclude<MrState['status'], 'ok'>, string> = {
 // The branch's merge request threads: open ones first (where, who, when, the
 // comment), each with Fix (to Claude), Resolve (asks first) and Web.
 export function commentsPage(
-  el: El, $: EngineInterface, state: MrState, isShowingResolved: boolean, asked: Confirm | null, branch: string, width: number,
+  el: El, $: EngineInterface, state: MrState, isShowingResolved: boolean, asked: Confirm | null, replying: ReplyTarget | null, branch: string, width: number,
 ): Page {
   const { Box, Text, Button } = el
   const open = openThreads(state)
@@ -803,6 +803,25 @@ export function commentsPage(
         <Box key="resolvenobox" flexShrink={0}><Button key="resolve-no" plain hover={HOVER} onPress={() => { void cancelConfirm($) }}><Text> Cancel </Text></Button></Box>
       </Box>
     )
+  }
+  // A reply being written: who and where, then a three-line field. Enter
+  // posts it on GitLab under your name.
+  const Input = 'Input' in el ? el.Input : undefined
+  if (replying && Input) {
+    page.extraRows = 4
+    page.extra = [
+      <Box key="replyhead" flexDirection="row" height={1} overflow="hidden">
+        <Text color={ACCENT} wrap="truncate-end">{`↩ Reply to ${replying.author} on ${fitPath(replying.where, Math.max(8, width - [...replying.author].length - 30))}`}</Text>
+        <Text dimColor>{'  posts on GitLab '}</Text>
+        <Box key="replycancelbox" flexShrink={0}>
+          <Button key="reply-cancel" plain hover={HOVER} onPress={() => { void cancelReply($) }}><Text color="gray"> Cancel</Text></Button>
+        </Box>
+      </Box>,
+      <Box key="replyinputbox" height={3}>
+        <Input key="reply-input" rows={3} placeholder="Your reply" submitLabel="reply" autoFocus
+          onSubmit={(value: string) => { void sendReply($, value) }} />
+      </Box>,
+    ] as never
   }
   const summary = [
     unresolved.length > 0 ? `${unresolved.length} unresolved` : 'nothing to resolve',
@@ -858,6 +877,7 @@ export function commentsPage(
     const buttons = [
       ...(isDone ? [] : [{ key: `fix:${i}`, label: `${glyph('claude')} fix`, color: CLAUDE_COLOR, onPress: () => { void fixThreads($, [one]) } }]),
       ...(one.isResolvable && !isDone ? [{ key: `resolve:${i}`, label: `${glyph('check')} resolve`, color: OK_COLOR, onPress: () => { void askResolve($, one) } }] : []),
+      { key: `reply:${i}`, label: '↩ reply', color: ACCENT, onPress: () => { void startReply($, { id: one.id, where: whereOf(one), author: first.author }) } },
       { key: `web:${i}`, label: `${glyph('web')} web`, color: 'gray', onPress: () => { void openMrWeb($, one) } },
     ]
     page.rows.push(node(`t:${one.id}:acts`, (
