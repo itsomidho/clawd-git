@@ -3,17 +3,19 @@
 
 import type { EngineInterface } from 'claude-code'
 
-import type { Change, Checkpoint, Confirm, Draft, Entry, LogRow, Note, NoteTarget, Repo, Shown, Touch, View } from '../types'
+import type { Change, Checkpoint, Confirm, Draft, Entry, LogRow, MrState, Note, NoteTarget, Repo, Shown, Touch, View } from '../types'
 import {
   askDiscard, askRestore, askReview, cancelConfirm, confirmRestore, savePointNow, selectTab, cancelNote, clearNotes, closeSearch, collapseAll, commitDraft,
   confirmDiscard, debugFile, draftCommit, draftToClaude, dropDraft, goBack, openInEditor, openSearch, openView, reload,
   isDebuggable, removeNote, saveNote, search, sendReview, stage, toggleDir, toggleSessionOnly, unstage,
+  fixThreads, openMrWeb, resolveConfirmed, toggleResolved,
 } from './actions'
+import { askResolve, openThreads } from './mr'
 import { KEEP, whenOf } from './checkpoints'
 import { fit, fitPath, fsTreeRows, hunkLines } from './git'
 import { iconFor, lineIconFor, outlineIconFor, simpleIconFor } from './icons'
 import {
-  ACCENT, CHIP_TEXT, CLAUDE_COLOR, ctx, DOT, glyph, HOVER, HOVER_ACCENT as HOVER_BUTTON, LOG_LIMIT, RULE, WARN, SEARCH_RESULTS, slid, SOURCE_LINES, TREE_ROWS, viewKey,
+  ACCENT, CHIP_TEXT, CLAUDE_COLOR, ctx, DOT, glyph, OK as OK_COLOR, HOVER, HOVER_ACCENT as HOVER_BUTTON, LOG_LIMIT, RULE, WARN, SEARCH_RESULTS, slid, SOURCE_LINES, TREE_ROWS, viewKey,
 } from './shared'
 import type { Action, El, Node, Page, Row } from './shared'
 
@@ -701,5 +703,162 @@ export function diffPage(
     if (file.note) page.rows.push(node(`note:${f}`, <Text color="gray">{file.note}</Text>))
   })
   if (one.isCut) page.rows.push(node('cut', <Text color="gray">… the rest is too large for the pane</Text>))
+  return page
+}
+
+// ---------------------------------------------------------------- Comments
+
+// How long ago an ISO time was, short: 5m, 3h, 2d, 4w.
+export function ageOf(iso: string, now = Date.now()) {
+  const at = Date.parse(iso)
+  if (!Number.isFinite(at)) return ''
+  const m = Math.max(0, Math.round((now - at) / 60_000))
+  if (m < 60) return `${m}m`
+  const h = Math.round(m / 60)
+  if (h < 24) return `${h}h`
+  const d = Math.round(h / 24)
+  return d < 14 ? `${d}d` : `${Math.round(d / 7)}w`
+}
+
+// Text broken into lines of at most `width` cells, at spaces where it can.
+export function wrapText(text: string, width: number): string[] {
+  const out: string[] = []
+  for (const raw of text.replace(/\r/g, '').split('\n')) {
+    let line = [...raw.replace(/\t/g, '  ')]
+    if (line.length === 0) { out.push(''); continue }
+    while (line.length > width) {
+      const cut = line.slice(0, width + 1).lastIndexOf(' ')
+      const at = cut > width / 3 ? cut : width
+      out.push(line.slice(0, at).join('').trimEnd())
+      line = [...line.slice(at).join('').trimStart()]
+    }
+    out.push(line.join(''))
+  }
+  return out
+}
+
+// A comment body's first lines, for the list: code fences dropped, blank runs closed.
+const BODY_LINES = 4
+function bodyLines(body: string, width: number) {
+  const plain = body.split('\n').filter(line => !/^\s*```/.test(line)).join('\n').replace(/\n{2,}/g, '\n').trim()
+  const lines = wrapText(plain, width)
+  if (lines.length <= BODY_LINES) return lines
+  const last = lines[BODY_LINES - 1] ?? ''
+  return [...lines.slice(0, BODY_LINES - 1), [...last].length >= width ? fit(last, width) : `${last}…`]
+}
+
+const MR_MESSAGE: Record<Exclude<MrState['status'], 'ok'>, string> = {
+  idle: 'Not read yet: press r to read the merge request.',
+  loading: 'Reading the merge request…',
+  noglab: 'glab is not installed. Install it (clawd-statusbar fetches it too), then run glab auth login.',
+  auth: 'glab is not logged in to this GitLab: run glab auth login --hostname <your GitLab host>.',
+  nomr: 'No open merge request for this branch.',
+  github: 'This repository is on GitHub: Comments reads GitLab merge requests only, for now.',
+  error: 'Could not read the merge request.',
+}
+
+// The branch's merge request threads: open ones first (where, who, when, the
+// comment), each with Fix (to Claude), Resolve (asks first) and Web.
+export function commentsPage(
+  el: El, $: EngineInterface, state: MrState, isShowingResolved: boolean, asked: Confirm | null, branch: string, width: number,
+): Page {
+  const { Box, Text, Button } = el
+  const open = openThreads(state)
+  const resolved = state.threads.filter(one => one.isResolved)
+  // Fix all takes the threads waiting to be resolved; plain comments (a
+  // review's summary, a note) each have their own Fix.
+  const unresolved = open.filter(one => one.isResolvable)
+  const plain = open.length - unresolved.length
+  const page: Page = {
+    key: 'comments',
+    title: 'Comments',
+    icon: 'comment',
+    sub: state.status === 'ok'
+      ? parts(el, [{ text: `!${state.iid}`, color: ACCENT }, { text: state.title ?? '', dim: true }])
+      : <Text dimColor wrap="truncate-end">{branch}</Text>,
+    actions: [{ key: 'refresh', label: glyph('refresh'), word: 'Refresh', onPress: () => { void reload($) } }],
+    rows: [],
+  }
+  if (state.status !== 'ok') {
+    page.rows.push(node('mr:msg', <Text color={state.status === 'error' || state.status === 'auth' || state.status === 'noglab' ? WARN : 'gray'} wrap="truncate-end">{MR_MESSAGE[state.status]}</Text>))
+    if (state.error) wrapText(state.error, width).slice(0, 3).forEach((line, i) => page.rows.push(node(`mr:err:${i}`, <Text dimColor wrap="truncate-end">{line}</Text>)))
+    return page
+  }
+  page.actions.push({ key: 'edit', label: glyph('web'), word: 'Open MR', onPress: () => { void openMrWeb($) } })
+  if (resolved.length > 0) {
+    page.actions.push({ key: 'session', label: glyph('check'), word: isShowingResolved ? 'Hide resolved' : 'Show resolved', onPress: () => { void toggleResolved($) } })
+  }
+  if (unresolved.length > 0) {
+    page.actions.push({ key: 'review', label: glyph('claude'), word: `Fix all ${unresolved.length}`, color: CLAUDE_COLOR, onPress: () => { void fixThreads($, unresolved) } })
+  }
+  // Resolving shows on GitLab for everyone: it asks first.
+  if (asked && asked.kind === 'resolve') {
+    page.extra = (
+      <Box flexDirection="row" height={1} overflow="hidden">
+        <Text color={WARN} wrap="truncate-end">{`Resolve the thread on ${fitPath(asked.where, Math.max(8, width - 34))} on GitLab? `}</Text>
+        <Box key="resolveyesbox" flexShrink={0}><Button key="resolve-yes" plain hover={HOVER_BUTTON} onPress={() => { void resolveConfirmed($) }}><Text color={WARN} bold> Resolve </Text></Button></Box>
+        <Box key="resolvenobox" flexShrink={0}><Button key="resolve-no" plain hover={HOVER} onPress={() => { void cancelConfirm($) }}><Text> Cancel </Text></Button></Box>
+      </Box>
+    )
+  }
+  const summary = [
+    unresolved.length > 0 ? `${unresolved.length} unresolved` : 'nothing to resolve',
+    plain > 0 ? `${plain} comment${plain === 1 ? '' : 's'}` : '',
+    resolved.length > 0 ? `${resolved.length} resolved${isShowingResolved ? '' : ' (hidden)'}` : '',
+    state.at > 0 ? (Date.now() - state.at < 60_000 ? 'read just now' : `read ${ageOf(new Date(state.at).toISOString())} ago`) : '',
+  ].filter(Boolean).join(DOT)
+  page.rows.push(node('mr:summary', <Text dimColor wrap="truncate-end">{summary}</Text>))
+  if (open.length === 0 && !isShowingResolved) {
+    page.rows.push(node('mr:gap', <Text> </Text>))
+    page.rows.push(node('mr:none', <Text color={OK_COLOR}>{`${glyph('check')} No open comments on this merge request.`}</Text>))
+    return page
+  }
+  const shown = isShowingResolved ? [...open, ...resolved] : open
+  const textWidth = Math.max(10, width - 2)
+  shown.forEach((one, i) => {
+    const first = one.notes[0]!
+    const last = one.notes[one.notes.length - 1]!
+    const isDone = one.isResolved
+    page.rows.push(node(`t:${one.id}:gap`, <Text> </Text>))
+    const where = one.path ? `${one.path.split('/').pop()}${one.line ? `:${one.line}` : ''}` : 'general'
+    const head = `${first.author}${DOT}${ageOf(first.at)}${DOT}`
+    page.rows.push(node(`t:${one.id}:head`, (
+      <Box key={`thead:${one.id}`} flexDirection="row" height={1} overflow="hidden">
+        <Text color={isDone ? OK_COLOR : ACCENT} dimColor={isDone}>{isDone ? `${glyph('check')} ` : '● '}</Text>
+        <Text bold={!isDone} dimColor={isDone}>{first.author}</Text>
+        <Text dimColor>{head.slice(first.author.length)}</Text>
+        {one.path
+          ? (
+              <Box key={`twhere:${one.id}`} flexShrink={1} overflow="hidden">
+                <Button key={`where:${i}`} plain hover={HOVER_BUTTON} onPress={() => { void openInEditor($, one.path!, one.line ?? 1) }}>
+                  <Text color="cyan" dimColor={isDone} wrap="truncate-end">{fitPath(where, Math.max(6, width - [...head].length - 4))}</Text>
+                </Button>
+              </Box>
+            )
+          : <Text dimColor italic>{where}</Text>}
+      </Box>
+    )))
+    if (one.path && one.path.includes('/')) {
+      page.rows.push(node(`t:${one.id}:path`, <Text dimColor wrap="truncate-end">{`  ${fitFolder(one.path.slice(0, one.path.lastIndexOf('/')), textWidth)}`}</Text>))
+    }
+    bodyLines(first.body, textWidth).forEach((line, j) => {
+      page.rows.push(node(`t:${one.id}:b${j}`, <Text dimColor={isDone} wrap="truncate-end">{`  ${line}`}</Text>))
+    })
+    if (one.notes.length > 1) {
+      const replies = one.notes.length - 1
+      page.rows.push(node(`t:${one.id}:replies`, <Text dimColor wrap="truncate-end">{`  ↳ ${replies} repl${replies === 1 ? 'y' : 'ies'}${DOT}last ${last.author}, ${ageOf(last.at)}: ${last.body.replace(/\s+/g, ' ').trim()}`}</Text>))
+    }
+    const buttons = [
+      ...(isDone ? [] : [{ key: `fix:${i}`, label: `${glyph('claude')} fix`, color: CLAUDE_COLOR, onPress: () => { void fixThreads($, [one]) } }]),
+      ...(one.isResolvable && !isDone ? [{ key: `resolve:${i}`, label: `${glyph('check')} resolve`, color: OK_COLOR, onPress: () => { void askResolve($, one) } }] : []),
+      { key: `web:${i}`, label: `${glyph('web')} web`, color: 'gray', onPress: () => { void openMrWeb($, one) } },
+    ]
+    page.rows.push(node(`t:${one.id}:acts`, (
+      <Box key={`tacts:${one.id}`} flexDirection="row" height={1} overflow="hidden">
+        <Text> </Text>
+        {rowButtons(el, `thread:${i}`, buttons)}
+      </Box>
+    )))
+  })
   return page
 }

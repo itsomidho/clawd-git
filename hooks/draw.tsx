@@ -9,7 +9,8 @@ import type { EngineInterface } from 'claude-code'
 import type { NoteTarget, Notice, Repo, Tab } from '../types'
 import { hasDebugger, isDebuggable, slide, startNote } from './actions'
 import { hunkOf } from './git'
-import { changesPage, commitsPage, diffPage, filesPage, node, restorePage, searchPage } from './pages'
+import { unresolvedCount } from './mr'
+import { changesPage, commentsPage, commitsPage, diffPage, filesPage, node, restorePage, searchPage } from './pages'
 import {
   ACCENT, BORDER, BRANCH_CHIP, CHIP_TEXT, CLAUDE_COLOR, ctx, DOT, EMPTY_REPO, EMPTY_SHOWN, ERR, FRAME_X, glyph, HEADER_ROWS, HOVER_ACCENT, OK,
   PINNED, SCROLL_THUMB, SCROLL_TRACK, SIDE_STEP, TABS, WARN,
@@ -40,6 +41,8 @@ const turnFiles = atom({ plugin: 'clawd-git', key: 'turnFiles' } as const, [])
 const notes = atom({ plugin: 'clawd-git', key: 'notes' } as const, [])
 const noteDraft = atom({ plugin: 'clawd-git', key: 'noteDraft' } as const, null)
 const checkpoints = atom({ plugin: 'clawd-git', key: 'checkpoints' } as const, [])
+const mr = atom({ plugin: 'clawd-git', key: 'mr' } as const, { status: 'idle', branch: '', threads: [], at: 0 })
+const showResolved = atom({ plugin: 'clawd-git', key: 'showResolved' } as const, false)
 
 // The tab row between the cards, as clawd-debug draws its tabs: pills, the lit
 // one filled with the accent, each with its count.
@@ -86,7 +89,7 @@ const BAR: Slot[] = [
   { id: 'refresh', key: 'r', label: 'refresh', icon: 'refresh', row: 2 },
 ]
 
-const RENAMED = new Set(['Explain', 'All files', 'End search'])
+const RENAMED = new Set(['Explain', 'All files', 'End search', 'Fix all', 'Open MR', 'Show resolved', 'Hide resolved'])
 
 // A bar icon: none in the plain set, whose glyphs are words.
 function barIcon(name: GlyphName) {
@@ -104,7 +107,8 @@ function barRow(el: El, row: 1 | 2, actions: Action[]) {
         // pages name the key otherwise (explain a commit, end a search).
         const word = act?.word ?? ''
         const count = /\d+$/.exec(word)?.[0]
-        const label = RENAMED.has(word) ? word.toLowerCase() : `${one.label}${count ? ` ${count}` : ''}`
+        const bare = word.replace(/\s*\d+$/, '')
+        const label = `${RENAMED.has(bare) ? bare.toLowerCase() : one.label}${count ? ` ${count}` : ''}`
         return (
           <Box key={`barbox:${one.id}`}>
             <Button key={one.id} hotkey={one.key} plain hover={HOVER_ACCENT} onPress={() => { act?.onPress() }}>
@@ -159,7 +163,7 @@ function titleRow(el: El, page: Page, side: Action[]) {
   return (
     <Box flexDirection="row" justifyContent="space-between" height={1} overflow="hidden">
       <Box flexDirection="row" flexShrink={1} overflow="hidden">
-        <Text color={ACCENT} bold wrap="truncate-end">{`${icon ? `${icon} ` : ''}${page.title}`}</Text>
+        <Box flexShrink={0}><Text color={ACCENT} bold wrap="truncate-end">{`${icon ? `${icon} ` : ''}${page.title}`}</Text></Box>
         {page.sub ? <Box flexShrink={1} overflow="hidden"><Text>  </Text>{page.sub as never}</Box> : null}
       </Box>
       <Box flexDirection="row" flexShrink={0} marginLeft={1}>
@@ -322,6 +326,9 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
   } else if (current === 'changes') {
     const [isSessionOnly, asked, drafting] = await Promise.all([read($, sessionOnly), read($, confirm), read($, draft)])
     page = changesPage(el, $, state, claude, isSessionOnly, asked, drafting, { files: changedThisTurn, isOn: base !== null }, notesList, inner, canDebug)
+  } else if (current === 'comments') {
+    const [threads, isShowingResolved, asked] = await Promise.all([read($, mr), read($, showResolved), read($, confirm)])
+    page = commentsPage(el, $, threads, isShowingResolved, asked, state.branch, inner)
   } else if (current === 'restore') {
     page = restorePage(el, $, await read($, checkpoints), await read($, confirm), inner)
   } else if (current === 'diff') {
@@ -347,7 +354,8 @@ export async function drawGit($: EngineInterface, el: El, columns: number, rows:
   // Where the window is, beside the tabs, as clawd-debug shows its details'.
   const total = page.rows.length
   const where = total > room ? `${offset + 1}–${Math.min(total, offset + room)} of ${total}` : ''
-  const tabs = tabRow(el, lit, { changes: state.files.length > 0 ? String(state.files.length) : '' }, where, onTab)
+  const open = unresolvedCount(await read($, mr))
+  const tabs = tabRow(el, lit, { changes: state.files.length > 0 ? String(state.files.length) : '', comments: open > 0 ? String(open) : '' }, where, onTab)
   const header = headerCard(el, state, said, page.actions)
   return drawPage(el, page, offset, room, x, width, height, side, header, tabs, noted, target => { void startNote($, target) })
 }

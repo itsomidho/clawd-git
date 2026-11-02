@@ -20,6 +20,7 @@ export const TABS: { id: Exclude<Tab, 'diff'>; label: string; glyph: readonly [s
   { id: 'changes', label: 'Changes', glyph: ['', ''] },
   { id: 'commits', label: 'Commits', glyph: ['', ''] },
   { id: 'restore', label: 'Restore', glyph: ['\uf1da', '\uea82'] },
+  { id: 'comments', label: 'Comments', glyph: ['\uf086', '\ueac7'] },
 ]
 
 // Toolbar and tree glyphs.
@@ -53,6 +54,9 @@ const GLYPH = {
   folder: ['\uf07b', '\uea83', '', ''],
   file: ['\uf15b', '\uea7b', '', ''],
   history: ['\uf1da', '\uea82', '◷', ''],
+  comment: ['\uf086', '\ueac7', '❝', ''],
+  web: ['\uf0ac', '\ueb01', '↗', ''],
+  check: ['\uf00c', '\ueab2', '✓', '✓'],
 } as const
 
 export type GlyphName = keyof typeof GLYPH

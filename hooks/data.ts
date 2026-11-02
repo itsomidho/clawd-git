@@ -9,6 +9,7 @@ import type { EngineInterface } from 'claude-code'
 import type { Change, Entry, FileDiff, Repo, Shown, View } from '../types'
 import { LOG_FORMAT, SEP, parseLog, parseNumstat, parseStatus, sortEntries, splitDiff } from './git'
 import { labelOf, listPoints, readPoints, savePoint, whenOf } from './checkpoints'
+import { FRESH_AWAY_MS, FRESH_OPEN_MS, refreshMr } from './mr'
 import { iconSetFor } from './icons'
 import type { IconMode } from './icons'
 import {
@@ -306,6 +307,9 @@ async function refreshViews($: EngineInterface, state: Repo) {
     if (isNew('log', rows)) await update($, log, () => rows)
   }
   if (current === 'restore') await readPoints($, state.root)
+  // The merge request's threads come over the network: read beside the rest,
+  // often while the tab is open, now and then for its count.
+  void refreshMr($, state.root, state.branch, { maxAgeMs: current === 'comments' ? FRESH_OPEN_MS : FRESH_AWAY_MS }).catch(() => {})
   if (current === 'diff') {
     const next = await readShown($, state, await read($, view))
     if (isNew('shown', next)) await update($, shown, () => next)

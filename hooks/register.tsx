@@ -47,7 +47,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: COMMAND,
       description: 'Show or hide the git panel: files, changes and commits',
-      argumentHint: '[files | changes | commits | restore | diff | turn | close]',
+      argumentHint: '[files | changes | commits | restore | comments | diff | turn | close]',
     }).catch(() => {})
     ctx.written.clear()
     ctx.needsLog = true

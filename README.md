@@ -16,6 +16,7 @@ A live git panel for [Claude Code](https://claude.com/claude-code), docked besid
 | **Changes** | The branch and every changed file, grouped (conflicts, staged, unstaged, new), with `+added −removed`. **Diff all** shows every change at once. |
 | **Commits** | The commit graph across all branches, one color per lane; press a commit to see its diff. |
 | **Restore** | Restore points: the project's files as they were before each of Claude's turns. Press one to see what restoring would change; **restore** puts them back. |
+| **Comments** | The review comments on the branch's open GitLab merge request: who, where (file and line) and what, unresolved first, with the count on the tab. **Fix** hands a comment to Claude. |
 
 A diff opens over the tab it came from; **Back** returns there. The header stays put while the rows scroll (wheel, PageUp/PageDown, Home/End), and anything wider than the panel slides sideways with ◀ ▶.
 
@@ -23,12 +24,12 @@ The panel is drawn like [clawd-debug](https://github.com/itsomidho/clawd-debug)'
 
 | Key | | Key | |
 |---|---|---|---|
-| `h` | back from a diff | `x` | review the diff, or explain the commit |
+| `h` | back from a diff | `x` | review the diff, explain the commit, or fix all comments |
 | `f` | search, or end the search | `v` | send your review notes |
 | `z` | collapse the tree | `m` | draft a commit message |
-| `d` | diff all | `o` | open the file in your editor |
+| `d` | diff all | `o` | open the file in your editor, or the merge request in the browser |
 | `t` | this turn | `g` | debug the file (with clawd-debug) |
-| `b` | Claude's files only, or all | `r` | refresh |
+| `b` | Claude's files only, or all; show or hide resolved comments | `r` | refresh |
 
 ### What Claude changed
 
@@ -43,6 +44,15 @@ Each time Claude starts on your message, the panel keeps a restore point: every 
 - They live in a repository of their own inside `.git` (`.git/clawd-git/points.git`): nothing is added to your repository, your history, your branches or `git log --all`, and nothing is pushed. A restore writes files only: your commits, branch and staged changes are left alone.
 - Files only: not the database (a `wp` command, a migration), not git-ignored files (`vendor/`, `node_modules/`, `.env`, uploads).
 - A point reuses the objects your repository already has. A point older than git's cleanup window (two weeks) that relied on an object your repository has since dropped may not restore every file; the panel says so if a restore comes out short.
+
+### Merge request comments
+
+**Comments** reads the open merge request of the branch you are on from GitLab, through [glab](https://gitlab.com/gitlab-org/cli) and the login it keeps (`glab auth login --hostname <your GitLab>`; the copy [clawd-statusbar](https://github.com/itsomidho/clawd-statusbar) installs works too). So you see what reviewers asked for without opening GitLab.
+
+- Each thread shows its author, how long ago, the file and line it is on (press it to open the file there), the comment's first lines and its replies. Resolved threads are hidden; `b` shows them.
+- **Fix** sends one thread to Claude with its file, line and every reply, asking it to change the code, or say why not, without replying on GitLab. **Fix all** (`x`) sends every unresolved thread in one message. Plain comments (a review summary) have their own **Fix**.
+- **Resolve** marks a thread resolved on GitLab, after asking: everyone on the merge request sees it. **Web** opens the thread in the browser.
+- It is read when the tab opens, on `r`, and every minute while it is open (every five otherwise, for the count). GitLab only for now: a GitHub repository says so.
 
 ### Reviewing Claude's work
 
@@ -73,7 +83,7 @@ For Claude's plan as it works, add [clawd-tasks](https://github.com/itsomidho/cl
 
 ## Use
 
-`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `commits`, `restore`, `diff` or `turn` opens it on that tab or view. Click anything in it, or focus it with ctrl+x tab to use its keys. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
+`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `commits`, `restore`, `comments`, `diff` or `turn` opens it on that tab or view. Click anything in it, or focus it with ctrl+x tab to use its keys. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
 
 It refreshes right after each edit or shell command of Claude's. In between it asks git for its status every 2 seconds and reads the rest only when something moved, so a quiet repository costs one `git status` per tick.
 

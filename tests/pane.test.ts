@@ -35,10 +35,11 @@ function ok(stdout: string, exitCode = 0) {
 type Seen = { argv: string[][]; stdin: (string | undefined)[]; prompts: string[] }
 
 // A fake repository at /work/app: one changed file, one new file, two commits.
-function world(on: On, opts: { diff?: string; status?: string; staged?: string; isOwnClock?: boolean; rootFile?: string; points?: string; log?: string } = {}): Seen {
+function world(on: On, opts: { diff?: string; status?: string; staged?: string; isOwnClock?: boolean; rootFile?: string; points?: string; log?: string; glab?: (args: string) => ReturnType<typeof ok>; remote?: string } = {}): Seen {
   const seen: Seen = { argv: [], stdin: [], prompts: [] }
   let trees = 0
   on('session.cwd', () => ({ value: '/work/app' }))
+  on('env.get', () => ({ value: '/home/me' }) as never)
   on('prompt.submit', ($, e) => { seen.prompts.push(e.text); return { text: e.text } as never })
   on('model.complete', () => ({ value: { isAnswered: true, text: 'Add the a module', usage: {} } }) as never)
   on('tool.call', () => ({ result: {}, text: 'done' }) as never)
@@ -46,6 +47,9 @@ function world(on: On, opts: { diff?: string; status?: string; staged?: string; 
     seen.argv.push([...e.argv])
     seen.stdin.push(e.init?.stdin)
     const args = e.argv.join(' ')
+    // glab, found in clawd-statusbar's folder (no glab on the PATH here).
+    if (e.argv[0]?.endsWith('/glab')) return opts.glab ? opts.glab(e.argv.slice(1).join(' ')) : ok('[]')
+    if (args.includes('remote get-url origin')) return ok(opts.remote ?? 'https://git.example.com/team/app.git\n')
     // Snapshots of the working tree: each write-tree a new tree.
     if (args.includes('rev-parse --absolute-git-dir')) return ok('/work/app/.git\n')
     if (args.includes('rev-parse --path-format=absolute --git-dir --git-common-dir')) return ok('/work/app/.git\n/work/app/.git\n')
@@ -629,5 +633,121 @@ test('a commit row fills the card exactly: a cut subject leaves the age whole at
   expect(text).toContain('…')
   // The card's text area: the pane less its frame, padding and scrollbar.
   expect([...text].length).toBe(PANE.props.bodyColumns - 5)
+  await ui.unmount()
+})
+
+// A merge request with a line comment (two notes), a general open thread, a
+// resolved one and a plain comment; system notes are left out.
+const MRS = JSON.stringify([{ iid: 42, title: 'Add the cart', web_url: 'https://git.example.com/team/app/-/merge_requests/42' }])
+const note = (id: number, author: string, body: string, extra: Record<string, unknown> = {}) =>
+  ({ id, body, author: { username: author }, created_at: '1970-01-01T00:00:00Z', system: false, resolvable: true, resolved: false, ...extra })
+const DISCUSSIONS = JSON.stringify([
+  { id: 'aaa111', notes: [
+    note(1, 'reviewer', 'Escape this output.\nUse esc_html here.', { type: 'DiffNote', position: { new_path: 'src/cart/view.php', old_path: 'src/cart/view.php', new_line: 12, old_line: null } }),
+    note(2, 'me', 'Why? It is a number.'),
+  ] },
+  { id: 'bbb222', notes: [note(3, 'reviewer', 'Please add a test for the empty cart.')] },
+  { id: 'ccc333', notes: [note(4, 'reviewer', 'Rename this.', { resolved: true, position: { new_path: 'src/a.ts', new_line: 3 } })] },
+  { id: 'ddd444', notes: [note(5, 'bot', 'added 1 commit', { system: true })] },
+  { id: 'eee555', notes: [note(6, 'lead', 'Looks fine overall.', { resolvable: false })] },
+])
+
+function gitlab(calls: string[], opts: { auth?: boolean; none?: boolean } = {}) {
+  return (args: string) => {
+    calls.push(args)
+    if (opts.auth) return { value: { exitCode: 1, stdout: '', stderr: 'ERROR: 401 Unauthorized', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (args.includes('-X PUT')) return ok('{}')
+    if (args.includes('/discussions')) return ok(DISCUSSIONS)
+    if (args.includes('merge_requests?source_branch=main')) return ok(opts.none ? '[]' : MRS)
+    return ok('[]')
+  }
+}
+
+test('Comments lists the branch\'s merge request threads, open ones first, with a count on the tab', async ($, on) => {
+  const calls: string[] = []
+  world(on, { glab: gitlab(calls) })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:comments' })
+  expect(calls.some(one => one.includes('merge_requests?source_branch=main&state=opened'))).toBe(true)
+  expect(calls.some(one => one.includes('merge_requests/42/discussions'))).toBe(true)
+  // Three open (two resolvable + a plain comment), the resolvable two counted on the tab.
+  expect((await ui.find({ key: 'tab:comments' }))?.text).toContain('Comments 2')
+  expect(await ui.find({ text: /!42/ })).toBeDefined()
+  expect(await ui.find({ text: /2 unresolved · 1 comment · 1 resolved \(hidden\)/ })).toBeDefined()
+  expect((await ui.find({ key: 'where:0' }))?.text).toContain('view.php:12')
+  expect(await ui.find({ text: /Use esc_html here/ })).toBeDefined()
+  expect(await ui.find({ text: /1 reply · last me/ })).toBeDefined()
+  // The resolved thread and the system note are not listed.
+  expect(await ui.find({ text: /Rename this/ })).toBeUndefined()
+  expect(await ui.find({ text: /added 1 commit/ })).toBeUndefined()
+  // A plain comment can be fixed but not resolved.
+  expect(await ui.find({ key: 'fix:2' })).toBeDefined()
+  expect(await ui.find({ key: 'resolve:2' })).toBeUndefined()
+  // Show resolved lists it, after the open ones.
+  expect(await isLive(ui, 'session')).toBe(true)
+  await ui.press({ key: 'session' })
+  expect(await ui.find({ text: /Rename this/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('Fix sends one thread to Claude with its file, line and every note; Fix all sends the open ones', async ($, on) => {
+  const seen = world(on, { glab: gitlab([]) })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:comments' })
+  await ui.press({ key: 'fix:0' })
+  const one = seen.prompts.at(-1) ?? ''
+  expect(one).toContain('merge request !42 (Add the cart)')
+  expect(one).toContain('On src/cart/view.php:12')
+  expect(one).toContain('> Use esc_html here.')
+  expect(one).toContain('me:\n> Why? It is a number.')
+  expect(one).toContain("Don't reply on GitLab")
+  await ui.press({ key: 'review' })
+  const all = seen.prompts.at(-1) ?? ''
+  expect(all).toContain('1. On src/cart/view.php:12')
+  expect(all).toContain('2. On the merge request as a whole')
+  // The plain comment has its own Fix, not part of Fix all.
+  expect(all).not.toContain('Looks fine overall')
+  expect(all).not.toContain('Rename this')
+  await ui.unmount()
+})
+
+test('Resolve asks first, then resolves the thread on GitLab', async ($, on) => {
+  const calls: string[] = []
+  world(on, { glab: gitlab(calls) })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:comments' })
+  await ui.press({ key: 'resolve:0' })
+  expect(await ui.find({ text: /Resolve the thread on .*view\.php:12 on GitLab\?/ })).toBeDefined()
+  await ui.press({ key: 'resolve-no' })
+  expect(calls.some(one => one.includes('-X PUT'))).toBe(false)
+  await ui.press({ key: 'resolve:0' })
+  await ui.press({ key: 'resolve-yes' })
+  expect(calls.some(one => one.includes('-X PUT projects/:fullpath/merge_requests/42/discussions/aaa111?resolved=true'))).toBe(true)
+  await ui.unmount()
+})
+
+test('Comments says when glab is not logged in', async ($, on) => {
+  world(on, { glab: gitlab([], { auth: true }) })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:comments' })
+  expect(await ui.find({ text: /glab is not logged in/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('Comments with no open merge request for the branch', async ($, on) => {
+  world(on, { glab: gitlab([], { none: true }) })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:comments' })
+  expect(await ui.find({ text: /No open merge request for this branch/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('Comments on a GitHub repository says it reads GitLab only', async ($, on) => {
+  const calls: string[] = []
+  world(on, { glab: gitlab(calls), remote: 'git@github.com:me/app.git\n' })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:comments' })
+  expect(await ui.find({ text: /on GitHub/ })).toBeDefined()
+  expect(calls).toEqual([])
   await ui.unmount()
 })

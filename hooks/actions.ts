@@ -5,9 +5,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { Change, Checkpoint, Confirm, Note, NoteTarget, Repo, Tab, View } from '../types'
+import type { Change, Checkpoint, Confirm, MrThread, Note, NoteTarget, Repo, Tab, View } from '../types'
 import { restorePoint, savePoint, whenOf } from './checkpoints'
 import { refresh } from './data'
+import { confirmResolve, fixText, openWeb, refreshMr } from './mr'
 import { DRAFT_MODEL, EMPTY_REPO, SEARCH_RESULTS, ctx, git, viewKey } from './shared'
 
 const tab = atom({ plugin: 'clawd-git', key: 'tab' } as const, 'files')
@@ -26,6 +27,8 @@ const draft = atom({ plugin: 'clawd-git', key: 'draft' } as const, null)
 const notice = atom({ plugin: 'clawd-git', key: 'notice' } as const, null)
 const notes = atom({ plugin: 'clawd-git', key: 'notes' } as const, [])
 const noteDraft = atom({ plugin: 'clawd-git', key: 'noteDraft' } as const, null)
+const mr = atom({ plugin: 'clawd-git', key: 'mr' } as const, { status: 'idle', branch: '', threads: [], at: 0 })
+const showResolved = atom({ plugin: 'clawd-git', key: 'showResolved' } as const, false)
 
 // ---------------------------------------------------------------- moving around
 
@@ -34,6 +37,7 @@ export async function selectTab($: EngineInterface, next: Tab) {
   await update($, scrollX, () => 0)
   if (next === 'commits') ctx.needsLog = true
   await refresh($)
+  if (next === 'comments') await readComments($, false)
 }
 
 // Opens a diff (all changes, a file, a commit) over the current tab.
@@ -70,6 +74,7 @@ export async function reload($: EngineInterface) {
   ctx.written.clear()
   ctx.lastSignature = ''
   await refresh($)
+  if ((await read($, tab)) === 'comments') await readComments($, true)
 }
 
 // ---------------------------------------------------------------- search
@@ -249,6 +254,36 @@ export async function askReview($: EngineInterface, current: View) {
   }
   const target = current.kind === 'file' ? `\`${current.path}\` (\`git diff HEAD -- ${current.path}\`)` : 'the working tree (`git diff HEAD` and the untracked files)'
   await ask($, `Review the uncommitted changes in ${target}. Point out bugs, risks and anything worth cleaning up, most important first. Don't change any files yet.`, 'Asked Claude to review the changes.')
+}
+
+// ---------------------------------------------------------------- merge request comments
+
+// The branch's merge request threads: read now when `force`, else when stale.
+export async function readComments($: EngineInterface, force: boolean) {
+  const state = await read($, repo)
+  await refreshMr($, state.root, state.branch, { force })
+}
+
+// One thread, or every open one, to Claude to fix in the code.
+export async function fixThreads($: EngineInterface, threads: MrThread[]) {
+  if (threads.length === 0) return
+  const state = await read($, mr)
+  await ask($, fixText(state, threads), threads.length === 1 ? 'Asked Claude to address the comment.' : `Asked Claude to address ${threads.length} comments.`)
+}
+
+export async function resolveConfirmed($: EngineInterface) {
+  const state = await read($, repo)
+  const done = await confirmResolve($, state.root, state.branch)
+  await say($, done.text, done.ok ? 'ok' : 'error')
+}
+
+export async function openMrWeb($: EngineInterface, one?: MrThread) {
+  const done = await openWeb($, await read($, mr), one)
+  await say($, done.text, done.ok ? 'ok' : 'error')
+}
+
+export async function toggleResolved($: EngineInterface) {
+  await update($, showResolved, isOn => !isOn)
 }
 
 // ---------------------------------------------------------------- clawd-debug

@@ -1,5 +1,5 @@
 // 'diff' is no tab of the row: it opens over the tab it came from.
-export type Tab = 'files' | 'changes' | 'diff' | 'commits' | 'restore'
+export type Tab = 'files' | 'changes' | 'diff' | 'commits' | 'restore' | 'comments'
 
 export type ChangeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflict'
 
@@ -73,6 +73,7 @@ export type Touch = { at: number; tool: string; count: number }
 export type Confirm =
   | { kind: 'discard'; path: string; how: 'clean' | 'remove' | 'restore' }
   | { kind: 'restore'; ref: string; when: string; label: string; changed: number }
+  | { kind: 'resolve'; id: string; where: string }
 
 // A restore point: the working tree as it stood (tracked and new files, not
 // ignored ones), kept as a commit under refs/clawd-git/checkpoints/ so git's
@@ -88,6 +89,36 @@ export type Checkpoint = {
   kind: 'turn' | 'manual' | 'undo'
   // Files that differ between it and the working tree now.
   changed: number
+}
+
+// One comment of a merge request thread.
+export type MrNote = { id: number; author: string; body: string; at: string }
+
+// A thread on the merge request: on a line of a file (path and line set), or
+// on the request as a whole. `isResolvable` is false for a plain comment.
+export type MrThread = {
+  id: string
+  path?: string
+  line?: number
+  // The line is on the old side of the diff (a removed line).
+  isOld?: boolean
+  isResolvable: boolean
+  isResolved: boolean
+  notes: MrNote[]
+}
+
+// The open merge request of the current branch and its threads, or why there is none.
+export type MrState = {
+  status: 'idle' | 'loading' | 'ok' | 'noglab' | 'auth' | 'nomr' | 'github' | 'error'
+  // The branch this was read for, so a branch switch reads again.
+  branch: string
+  iid?: number
+  title?: string
+  url?: string
+  threads: MrThread[]
+  // When it was last read (ms); 0 never.
+  at: number
+  error?: string
 }
 
 // A commit message being drafted for what is staged.
@@ -141,6 +172,10 @@ declare module 'claude-code' {
       // Review notes on diff lines, and the line a note is being written for.
       notes: Note[]
       noteDraft: NoteTarget | null
+      // The branch's merge request and its review threads; and whether
+      // resolved threads are listed too.
+      mr: MrState
+      showResolved: boolean
       // The icon set this machine's fonts can draw, found when the session starts.
       iconSet: 'line' | 'nerd' | 'outline' | 'simple'
     }

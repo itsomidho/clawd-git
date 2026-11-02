@@ -1,7 +1,7 @@
 {
   "name": "clawd-git",
-  "version": "0.6.2",
-  "description": "A live git panel beside the conversation: the file tree, changes, colored diffs and the commit graph; marks what Claude changed, stages, commits and asks Claude to review",
+  "version": "0.7.0",
+  "description": "A live git panel beside the conversation: the file tree, changes, colored diffs and the commit graph; marks what Claude changed, stages, commits, asks Claude to review, and lists your GitLab merge request's review comments",
   "author": {
     "name": "Omid Hosseini",
     "url": "https://github.com/itsomidho"
@@ -14,7 +14,9 @@
     "diff",
     "pane",
     "commits",
-    "files"
+    "files",
+    "gitlab",
+    "merge-request"
   ],
   "types": "./types/index.d.ts",
   "userConfig": {
