@@ -51,6 +51,7 @@ Each time Claude starts on your message, the panel keeps a restore point: every 
 
 - Each thread shows its author, how long ago, the file and line it is on (press it to open the file there), the comment's first lines and its replies. Resolved threads are hidden, and so are your own: a thread only you wrote in (a note of yours no one has answered); one a reviewer replied to stays. `b` shows them all, dim.
 - **Fix** sends one thread to Claude with its file, line and every reply, asking it to change the code, or say why not, without replying on GitLab. **Fix all** (`x`) sends every unresolved thread in one message. Plain comments (a review summary) have their own **Fix**.
+- A press on a comment (its author or its text) opens it whole in a dialog over the panel: every reply in full, code kept as written. The arrows scroll it, Escape closes it, and **fix**, **reply**, **resolve** and **web** work from there too.
 - **Reply** opens a field under the title (three lines; `\` then Enter for a new line): type your answer and press Enter to post it on the thread under your GitLab name, as you would on GitLab. Cancel, or an empty Enter, posts nothing; if GitLab refuses, the field stays open with your text and the panel says why.
 - **Resolve** marks a thread resolved on GitLab, after asking: everyone on the merge request sees it. **Web** opens the thread in the browser.
 - It is read when the tab opens, on `r`, and every minute while it is open (every five otherwise, for the count). GitLab only for now: a GitHub repository says so.

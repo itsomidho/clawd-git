@@ -9,7 +9,7 @@ import type { Change, Checkpoint, Confirm, MrThread, Note, NoteTarget, ReplyTarg
 import { restorePoint, savePoint, whenOf } from './checkpoints'
 import { refresh } from './data'
 import { confirmResolve, fixText, openWeb, postReply, refreshMr } from './mr'
-import { DRAFT_MODEL, EMPTY_REPO, PANE, SEARCH_RESULTS, ctx, git, viewKey } from './shared'
+import { COMMENT_PANE, DRAFT_MODEL, EMPTY_REPO, PANE, SEARCH_RESULTS, ctx, git, viewKey } from './shared'
 
 const tab = atom({ plugin: 'clawd-git', key: 'tab' } as const, 'files')
 const back = atom({ plugin: 'clawd-git', key: 'back' } as const, 'changes')
@@ -30,6 +30,7 @@ const noteDraft = atom({ plugin: 'clawd-git', key: 'noteDraft' } as const, null)
 const mr = atom({ plugin: 'clawd-git', key: 'mr' } as const, { status: 'idle', branch: '', threads: [], at: 0 })
 const showResolved = atom({ plugin: 'clawd-git', key: 'showResolved' } as const, false)
 const replyTo = atom({ plugin: 'clawd-git', key: 'replyTo' } as const, null)
+const reading = atom({ plugin: 'clawd-git', key: 'reading' } as const, null)
 
 // ---------------------------------------------------------------- moving around
 
@@ -281,6 +282,18 @@ export async function resolveConfirmed($: EngineInterface) {
 export async function openMrWeb($: EngineInterface, one?: MrThread) {
   const done = await openWeb($, await read($, mr), one)
   await say($, done.text, done.ok ? 'ok' : 'error')
+}
+
+// A thread read whole, in a dialog over the panel: it takes the keyboard,
+// the arrows scroll it, Escape closes it.
+export async function openComment($: EngineInterface, id: string) {
+  await update($, reading, () => id)
+  await $.ui.open({ id: COMMENT_PANE, title: 'Comment', focus: true, closeOnEscape: true }).catch(() => undefined)
+}
+
+export async function closeComment($: EngineInterface) {
+  await update($, reading, () => null)
+  await $.ui.close({ id: COMMENT_PANE }).catch(() => undefined)
 }
 
 // Opens the reply field for a thread (and drops a Resolve question that was up).

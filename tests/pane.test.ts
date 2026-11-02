@@ -801,3 +801,42 @@ test('A reply GitLab refuses keeps the field open and says why', async ($, on) =
   expect(await ui.find({ key: 'reply-input' })).toBeDefined()
   await ui.unmount()
 })
+
+// The comment dialog, as the engine would draw the pane the press opens.
+const DIALOG = { ...PANE, requestId: 'git-comment', props: { ...PANE.props, title: 'Comment' } }
+
+test('A press on a thread opens it whole in a dialog: every note in full, with its actions', async ($, on) => {
+  const long = Array.from({ length: 12 }, (_, i) => `Line ${i + 1} of a long review comment.`).join('\n')
+  const closed: string[] = []
+  on('ui.close', ($, e, next) => { closed.push(e.id); return next(e) })
+  world(on, { glab: (args: string) => (args.includes('/discussions')
+    ? ok(JSON.stringify([{ id: 'zzz999', notes: [note(1, 'reviewer', long, { position: { new_path: 'src/cart/view.php', new_line: 7 } }), note(2, 'lead', 'Agreed.')] }]))
+    : gitlab([])(args)) })
+  const ui = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'tab:comments' })
+  // The list shows a few lines; the twelfth is not among them.
+  expect(await ui.find({ text: /Line 12 of/ })).toBeUndefined()
+  await ui.press({ key: 'read:0:1' })
+
+  const dialog = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...DIALOG })
+  expect(await dialog.find({ text: /Line 1 of/ })).toBeDefined()
+  expect(await dialog.find({ text: /Line 12 of/ })).toBeDefined()
+  expect(await dialog.find({ text: /Agreed\./ })).toBeDefined()
+  expect(await dialog.find({ text: /src\/cart\/view\.php:7/ })).toBeDefined()
+  expect(await dialog.find({ key: 'dlg-fix' })).toBeDefined()
+  expect(await dialog.find({ key: 'dlg-resolve' })).toBeDefined()
+
+  // Reply closes the dialog and opens the reply field in the panel.
+  await dialog.press({ key: 'dlg-reply' })
+  expect(closed).toContain('git-comment')
+  expect(await ui.find({ key: 'reply-input' })).toBeDefined()
+  await dialog.unmount()
+  await ui.unmount()
+})
+
+test('The dialog for a thread that is gone says so', async ($, on) => {
+  world(on, { glab: gitlab([]) })
+  const dialog = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...DIALOG })
+  expect(await dialog.find({ text: /That comment is gone/ })).toBeDefined()
+  await dialog.unmount()
+})

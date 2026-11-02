@@ -10,6 +10,8 @@ import type { IconMode } from './icons'
 
 export const PANE = 'git'
 export const COMMAND = 'git-pane'
+// The dialog a merge request thread opens in, to read it whole.
+export const COMMENT_PANE = 'git-comment'
 // The Files pane of 0.1, now a tab: closed if a reload finds it open.
 export const OLD_FILES_PANE = 'files'
 

@@ -8,7 +8,7 @@ import {
   askDiscard, askRestore, askReview, cancelConfirm, confirmRestore, savePointNow, selectTab, cancelNote, clearNotes, closeSearch, collapseAll, commitDraft,
   confirmDiscard, debugFile, draftCommit, draftToClaude, dropDraft, goBack, openInEditor, openSearch, openView, reload,
   isDebuggable, removeNote, saveNote, search, sendReview, stage, toggleDir, toggleSessionOnly, unstage,
-  fixThreads, openMrWeb, resolveConfirmed, toggleResolved, startReply, cancelReply, sendReply,
+  fixThreads, openMrWeb, resolveConfirmed, toggleResolved, startReply, cancelReply, sendReply, openComment,
 } from './actions'
 import { askResolve, hiddenThreads, isMine, openThreads, whereOf } from './mr'
 import { KEEP, whenOf } from './checkpoints'
@@ -851,8 +851,12 @@ export function commentsPage(
     page.rows.push(node(`t:${one.id}:head`, (
       <Box key={`thead:${one.id}`} flexDirection="row" height={1} overflow="hidden">
         <Text color={isDone ? OK_COLOR : ACCENT} dimColor={isDim}>{isDone ? `${glyph('check')} ` : isDim ? '○ ' : '● '}</Text>
-        <Text bold={!isDim} dimColor={isDim}>{first.author}</Text>
-        <Text dimColor>{head.slice(first.author.length)}</Text>
+        <Box key={`twho:${one.id}`} flexShrink={0}>
+          <Button key={`read:${i}`} plain hover={HOVER_BUTTON} onPress={() => { void openComment($, one.id) }}>
+            <Text bold={!isDim} dimColor={isDim}>{first.author}</Text>
+            <Text dimColor>{head.slice(first.author.length)}</Text>
+          </Button>
+        </Box>
         {one.path
           ? (
               <Box key={`twhere:${one.id}`} flexShrink={1} overflow="hidden">
@@ -867,8 +871,15 @@ export function commentsPage(
     if (one.path && one.path.includes('/')) {
       page.rows.push(node(`t:${one.id}:path`, <Text dimColor wrap="truncate-end">{`  ${fitFolder(one.path.slice(0, one.path.lastIndexOf('/')), textWidth)}`}</Text>))
     }
+    // The comment's first lines: a press opens it whole.
     bodyLines(first.body, textWidth).forEach((line, j) => {
-      page.rows.push(node(`t:${one.id}:b${j}`, <Text dimColor={isDim} wrap="truncate-end">{`  ${line}`}</Text>))
+      page.rows.push(node(`t:${one.id}:b${j}`, (
+        <Box key={`tbody:${one.id}:${j}`} height={1} overflow="hidden">
+          <Button key={`read:${i}:${j}`} plain hover={HOVER} onPress={() => { void openComment($, one.id) }}>
+            <Text dimColor={isDim} wrap="truncate-end">{`  ${line}`}</Text>
+          </Button>
+        </Box>
+      )))
     })
     if (one.notes.length > 1) {
       const replies = one.notes.length - 1

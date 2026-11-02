@@ -7,8 +7,9 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { forgetSession, noteBashChanges, noteTouched, openView, selectTab } from './actions'
 import { findIconSet, forgetReads, isAnyPaneShown, refresh, startTurn, updateTurnFiles } from './data'
+import { drawComment } from './comment'
 import { drawGit } from './draw'
-import { COMMAND, EDITORS, EMPTY_REPO, OLD_FILES_PANE, PANE, TABS, WRITERS, ctx, relativeTo } from './shared'
+import { COMMAND, COMMENT_PANE, EDITORS, EMPTY_REPO, OLD_FILES_PANE, PANE, TABS, WRITERS, ctx, relativeTo } from './shared'
 
 const isShown = atom({ plugin: 'clawd-git', key: 'isShown' } as const, true)
 const detected = atom({ plugin: 'clawd-git', key: 'iconSet' } as const, 'simple')
@@ -65,7 +66,8 @@ export const register: Register = (on, options) => {
     void (async () => {
       const panes = await $.ui.panes()
       // The Files pane of 0.1; and the side pane while the panel is above the prompt.
-      for (const id of ctx.config.placement === 'prompt' ? [PANE, OLD_FILES_PANE] : [OLD_FILES_PANE]) {
+      // The comment dialog is never left open across a start.
+      for (const id of ctx.config.placement === 'prompt' ? [PANE, OLD_FILES_PANE, COMMENT_PANE] : [OLD_FILES_PANE, COMMENT_PANE]) {
         if (panes.some(pane => pane.id === id)) await $.ui.close({ id })
       }
       if (!ctx.config.isAutoOpen) await update($, isShown, () => false)
@@ -160,6 +162,17 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: 'git' }, async ($, e) => {
     const el = $.ui.resolve(e)
     return drawGit($, el, e.props.bodyColumns, e.props.scroll?.bodyRows ?? 30, id => { void selectTab($, id) })
+  })
+
+  // The comment dialog: one thread read whole.
+  on('ui.render', { component: 'Pane', requestId: COMMENT_PANE }, async ($, e) => {
+    return drawComment($, $.ui.resolve(e), e.props.bodyColumns)
+  })
+
+  // Escape (or the close mark) on the dialog: forget which thread it showed.
+  on('ui.close', async ($, e, next) => {
+    if (e.id === COMMENT_PANE) await update($, atom({ plugin: 'clawd-git', key: 'reading' } as const, null), () => null)
+    return next(e)
   })
 
   // Or the band above the prompt, with what another plugin draws there

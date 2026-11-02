@@ -183,6 +183,8 @@ declare module 'claude-code' {
       showResolved: boolean
       // The thread a reply is being written to, while its field is open.
       replyTo: ReplyTarget | null
+      // The thread open in the comment dialog, by its id.
+      reading: string | null
       // The icon set this machine's fonts can draw, found when the session starts.
       iconSet: 'line' | 'nerd' | 'outline' | 'simple'
     }
