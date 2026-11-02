@@ -10,7 +10,7 @@ import {
   isDebuggable, removeNote, saveNote, search, sendReview, stage, toggleDir, toggleSessionOnly, unstage,
   fixThreads, openMrWeb, resolveConfirmed, toggleResolved,
 } from './actions'
-import { askResolve, openThreads } from './mr'
+import { askResolve, hiddenThreads, isMine, openThreads } from './mr'
 import { KEEP, whenOf } from './checkpoints'
 import { fit, fitPath, fsTreeRows, hunkLines } from './git'
 import { iconFor, lineIconFor, outlineIconFor, simpleIconFor } from './icons'
@@ -764,7 +764,10 @@ export function commentsPage(
 ): Page {
   const { Box, Text, Button } = el
   const open = openThreads(state)
-  const resolved = state.threads.filter(one => one.isResolved)
+  // Resolved threads and your own are hidden until b shows them.
+  const hidden = hiddenThreads(state)
+  const resolvedN = hidden.filter(one => one.isResolved).length
+  const mineN = hidden.length - resolvedN
   // Fix all takes the threads waiting to be resolved; plain comments (a
   // review's summary, a note) each have their own Fix.
   const unresolved = open.filter(one => one.isResolvable)
@@ -785,8 +788,8 @@ export function commentsPage(
     return page
   }
   page.actions.push({ key: 'edit', label: glyph('web'), word: 'Open MR', onPress: () => { void openMrWeb($) } })
-  if (resolved.length > 0) {
-    page.actions.push({ key: 'session', label: glyph('check'), word: isShowingResolved ? 'Hide resolved' : 'Show resolved', onPress: () => { void toggleResolved($) } })
+  if (hidden.length > 0) {
+    page.actions.push({ key: 'session', label: glyph('check'), word: isShowingResolved ? 'Show open' : 'Show all', onPress: () => { void toggleResolved($) } })
   }
   if (unresolved.length > 0) {
     page.actions.push({ key: 'review', label: glyph('claude'), word: `Fix all ${unresolved.length}`, color: CLAUDE_COLOR, onPress: () => { void fixThreads($, unresolved) } })
@@ -804,7 +807,9 @@ export function commentsPage(
   const summary = [
     unresolved.length > 0 ? `${unresolved.length} unresolved` : 'nothing to resolve',
     plain > 0 ? `${plain} comment${plain === 1 ? '' : 's'}` : '',
-    resolved.length > 0 ? `${resolved.length} resolved${isShowingResolved ? '' : ' (hidden)'}` : '',
+    hidden.length > 0
+      ? `${[resolvedN > 0 ? `${resolvedN} resolved` : '', mineN > 0 ? `${mineN} yours` : ''].filter(Boolean).join(', ')}${isShowingResolved ? '' : ' (hidden)'}`
+      : '',
     state.at > 0 ? (Date.now() - state.at < 60_000 ? 'read just now' : `read ${ageOf(new Date(state.at).toISOString())} ago`) : '',
   ].filter(Boolean).join(DOT)
   page.rows.push(node('mr:summary', <Text dimColor wrap="truncate-end">{summary}</Text>))
@@ -813,25 +818,27 @@ export function commentsPage(
     page.rows.push(node('mr:none', <Text color={OK_COLOR}>{`${glyph('check')} No open comments on this merge request.`}</Text>))
     return page
   }
-  const shown = isShowingResolved ? [...open, ...resolved] : open
+  const shown = isShowingResolved ? [...open, ...hidden] : open
   const textWidth = Math.max(10, width - 2)
   shown.forEach((one, i) => {
     const first = one.notes[0]!
     const last = one.notes[one.notes.length - 1]!
     const isDone = one.isResolved
+    // Resolved and your own threads, listed only on b, are drawn dim.
+    const isDim = isDone || isMine(state, one)
     page.rows.push(node(`t:${one.id}:gap`, <Text> </Text>))
     const where = one.path ? `${one.path.split('/').pop()}${one.line ? `:${one.line}` : ''}` : 'general'
     const head = `${first.author}${DOT}${ageOf(first.at)}${DOT}`
     page.rows.push(node(`t:${one.id}:head`, (
       <Box key={`thead:${one.id}`} flexDirection="row" height={1} overflow="hidden">
-        <Text color={isDone ? OK_COLOR : ACCENT} dimColor={isDone}>{isDone ? `${glyph('check')} ` : '● '}</Text>
-        <Text bold={!isDone} dimColor={isDone}>{first.author}</Text>
+        <Text color={isDone ? OK_COLOR : ACCENT} dimColor={isDim}>{isDone ? `${glyph('check')} ` : isDim ? '○ ' : '● '}</Text>
+        <Text bold={!isDim} dimColor={isDim}>{first.author}</Text>
         <Text dimColor>{head.slice(first.author.length)}</Text>
         {one.path
           ? (
               <Box key={`twhere:${one.id}`} flexShrink={1} overflow="hidden">
                 <Button key={`where:${i}`} plain hover={HOVER_BUTTON} onPress={() => { void openInEditor($, one.path!, one.line ?? 1) }}>
-                  <Text color="cyan" dimColor={isDone} wrap="truncate-end">{fitPath(where, Math.max(6, width - [...head].length - 4))}</Text>
+                  <Text color="cyan" dimColor={isDim} wrap="truncate-end">{fitPath(where, Math.max(6, width - [...head].length - 4))}</Text>
                 </Button>
               </Box>
             )
@@ -842,7 +849,7 @@ export function commentsPage(
       page.rows.push(node(`t:${one.id}:path`, <Text dimColor wrap="truncate-end">{`  ${fitFolder(one.path.slice(0, one.path.lastIndexOf('/')), textWidth)}`}</Text>))
     }
     bodyLines(first.body, textWidth).forEach((line, j) => {
-      page.rows.push(node(`t:${one.id}:b${j}`, <Text dimColor={isDone} wrap="truncate-end">{`  ${line}`}</Text>))
+      page.rows.push(node(`t:${one.id}:b${j}`, <Text dimColor={isDim} wrap="truncate-end">{`  ${line}`}</Text>))
     })
     if (one.notes.length > 1) {
       const replies = one.notes.length - 1

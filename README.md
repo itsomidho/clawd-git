@@ -29,7 +29,7 @@ The panel is drawn like [clawd-debug](https://github.com/itsomidho/clawd-debug)'
 | `z` | collapse the tree | `m` | draft a commit message |
 | `d` | diff all | `o` | open the file in your editor, or the merge request in the browser |
 | `t` | this turn | `g` | debug the file (with clawd-debug) |
-| `b` | Claude's files only, or all; show or hide resolved comments | `r` | refresh |
+| `b` | Claude's files only, or all; show resolved and your own comments | `r` | refresh |
 
 ### What Claude changed
 
@@ -49,7 +49,7 @@ Each time Claude starts on your message, the panel keeps a restore point: every 
 
 **Comments** reads the open merge request of the branch you are on from GitLab, through [glab](https://gitlab.com/gitlab-org/cli) and the login it keeps (`glab auth login --hostname <your GitLab>`; the copy [clawd-statusbar](https://github.com/itsomidho/clawd-statusbar) installs works too). So you see what reviewers asked for without opening GitLab.
 
-- Each thread shows its author, how long ago, the file and line it is on (press it to open the file there), the comment's first lines and its replies. Resolved threads are hidden; `b` shows them.
+- Each thread shows its author, how long ago, the file and line it is on (press it to open the file there), the comment's first lines and its replies. Resolved threads are hidden, and so are your own: a thread only you wrote in (a note of yours no one has answered); one a reviewer replied to stays. `b` shows them all, dim.
 - **Fix** sends one thread to Claude with its file, line and every reply, asking it to change the code, or say why not, without replying on GitLab. **Fix all** (`x`) sends every unresolved thread in one message. Plain comments (a review summary) have their own **Fix**.
 - **Resolve** marks a thread resolved on GitLab, after asking: everyone on the merge request sees it. **Web** opens the thread in the browser.
 - It is read when the tab opens, on `r`, and every minute while it is open (every five otherwise, for the count). GitLab only for now: a GitHub repository says so.

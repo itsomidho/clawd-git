@@ -650,6 +650,9 @@ const DISCUSSIONS = JSON.stringify([
   { id: 'ccc333', notes: [note(4, 'reviewer', 'Rename this.', { resolved: true, position: { new_path: 'src/a.ts', new_line: 3 } })] },
   { id: 'ddd444', notes: [note(5, 'bot', 'added 1 commit', { system: true })] },
   { id: 'eee555', notes: [note(6, 'lead', 'Looks fine overall.', { resolvable: false })] },
+  // Yours alone: hidden. (aaa111 has your reply, but a reviewer started it: it stays.)
+  { id: 'fff666', notes: [note(7, 'me', 'Ready for another look.', { resolvable: false })] },
+  { id: 'ggg777', notes: [note(8, 'me', 'Note to self: check the cache.'), note(9, 'me', 'Done.')] },
 ])
 
 function gitlab(calls: string[], opts: { auth?: boolean; none?: boolean } = {}) {
@@ -657,6 +660,7 @@ function gitlab(calls: string[], opts: { auth?: boolean; none?: boolean } = {}) 
     calls.push(args)
     if (opts.auth) return { value: { exitCode: 1, stdout: '', stderr: 'ERROR: 401 Unauthorized', isStdoutTruncated: false, isStderrTruncated: false } }
     if (args.includes('-X PUT')) return ok('{}')
+    if (args === 'api user') return ok('{"username":"me"}')
     if (args.includes('/discussions')) return ok(DISCUSSIONS)
     if (args.includes('merge_requests?source_branch=main')) return ok(opts.none ? '[]' : MRS)
     return ok('[]')
@@ -673,7 +677,10 @@ test('Comments lists the branch\'s merge request threads, open ones first, with 
   // Three open (two resolvable + a plain comment), the resolvable two counted on the tab.
   expect((await ui.find({ key: 'tab:comments' }))?.text).toContain('Comments 2')
   expect(await ui.find({ text: /!42/ })).toBeDefined()
-  expect(await ui.find({ text: /2 unresolved · 1 comment · 1 resolved \(hidden\)/ })).toBeDefined()
+  expect(await ui.find({ text: /2 unresolved · 1 comment · 1 resolved, 2 yours \(hidden\)/ })).toBeDefined()
+  // Threads only you wrote in are hidden.
+  expect(await ui.find({ text: /Ready for another look/ })).toBeUndefined()
+  expect(await ui.find({ text: /Note to self/ })).toBeUndefined()
   expect((await ui.find({ key: 'where:0' }))?.text).toContain('view.php:12')
   expect(await ui.find({ text: /Use esc_html here/ })).toBeDefined()
   expect(await ui.find({ text: /1 reply · last me/ })).toBeDefined()
@@ -683,10 +690,11 @@ test('Comments lists the branch\'s merge request threads, open ones first, with 
   // A plain comment can be fixed but not resolved.
   expect(await ui.find({ key: 'fix:2' })).toBeDefined()
   expect(await ui.find({ key: 'resolve:2' })).toBeUndefined()
-  // Show resolved lists it, after the open ones.
+  // Show all lists them, after the open ones.
   expect(await isLive(ui, 'session')).toBe(true)
   await ui.press({ key: 'session' })
   expect(await ui.find({ text: /Rename this/ })).toBeDefined()
+  expect(await ui.find({ text: /Ready for another look/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -707,6 +715,7 @@ test('Fix sends one thread to Claude with its file, line and every note; Fix all
   expect(all).toContain('2. On the merge request as a whole')
   // The plain comment has its own Fix, not part of Fix all.
   expect(all).not.toContain('Looks fine overall')
+  expect(all).not.toContain('Note to self')
   expect(all).not.toContain('Rename this')
   await ui.unmount()
 })

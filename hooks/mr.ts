@@ -109,18 +109,48 @@ async function readMr($: EngineInterface, root: string, branch: string): Promise
     return { ...base, status: 'error', error: 'GitLab answered with something that is not JSON.' }
   }
   if (!first || !first.iid) return { ...base, status: 'nomr' }
-  const talk = await glab($, root, ['api', `projects/:fullpath/merge_requests/${first.iid}/discussions?per_page=100`])
+  const [talk, me] = await Promise.all([
+    glab($, root, ['api', `projects/:fullpath/merge_requests/${first.iid}/discussions?per_page=100`]),
+    whoAmI($, root),
+  ])
   if (talk.exitCode !== 0) return { ...base, ...failed(talk.stderr || talk.stdout) }
-  return { ...base, status: 'ok', iid: first.iid, title: first.title ?? '', url: first.web_url ?? '', threads: parseThreads(talk.stdout) }
+  return { ...base, status: 'ok', iid: first.iid, title: first.title ?? '', url: first.web_url ?? '', threads: parseThreads(talk.stdout), ...(me ? { me } : {}) }
 }
 
-// Threads still waiting on someone: open resolvable ones, then plain comments.
+// The username glab is logged in as on this repository's GitLab, read once per project.
+const users = new Map<string, string>()
+async function whoAmI($: EngineInterface, root: string): Promise<string | undefined> {
+  const known = users.get(root)
+  if (known) return known
+  const out = await glab($, root, ['api', 'user'])
+  if (out.exitCode !== 0) return undefined
+  try {
+    const name = (JSON.parse(out.stdout) as { username?: string }).username
+    if (name) users.set(root, name)
+    return name
+  } catch {
+    return undefined
+  }
+}
+
+// A thread only you wrote in: your own note, or one no one has answered.
+// One a reviewer replied to is someone else's request too, so it stays.
+export function isMine(state: MrState, one: MrThread) {
+  return state.me !== undefined && one.notes.every(note => note.author === state.me)
+}
+
+// Threads waiting on you: not resolved, not only yours.
 export function openThreads(state: MrState) {
-  return state.threads.filter(one => !one.isResolved)
+  return state.threads.filter(one => !one.isResolved && !isMine(state, one))
+}
+
+// What the list hides until asked: resolved threads, and your own.
+export function hiddenThreads(state: MrState) {
+  return state.threads.filter(one => one.isResolved || isMine(state, one))
 }
 
 export function unresolvedCount(state: MrState) {
-  return state.threads.filter(one => one.isResolvable && !one.isResolved).length
+  return openThreads(state).filter(one => one.isResolvable).length
 }
 
 // ---------------------------------------------------------------- asking Claude

@@ -116,6 +116,8 @@ export type MrState = {
   title?: string
   url?: string
   threads: MrThread[]
+  // Your GitLab username, so threads only you wrote in can be hidden.
+  me?: string
   // When it was last read (ms); 0 never.
   at: number
   error?: string
