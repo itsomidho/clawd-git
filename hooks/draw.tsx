@@ -90,7 +90,7 @@ const BAR: Slot[] = [
   { id: 'refresh', key: 'r', label: 'refresh', icon: 'refresh', row: 2 },
 ]
 
-const RENAMED = new Set(['Explain', 'All files', 'End search', 'Fix all', 'Open MR', 'Show all', 'Show open'])
+const RENAMED = new Set(['Explain', 'All files', 'End search', 'Fix all', 'Open MR', 'Show yours', 'Hide yours'])
 
 // A bar icon: none in the plain set, whose glyphs are words.
 function barIcon(name: GlyphName) {

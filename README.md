@@ -29,7 +29,7 @@ The panel is drawn like [clawd-debug](https://github.com/itsomidho/clawd-debug)'
 | `z` | collapse the tree | `m` | draft a commit message |
 | `d` | diff all | `o` | open the file in your editor, or the merge request in the browser |
 | `t` | this turn | `g` | debug the file (with clawd-debug) |
-| `b` | Claude's files only, or all; show resolved and your own comments | `r` | refresh |
+| `b` | Claude's files only, or all; show or hide your own comments | `r` | refresh |
 
 ### What Claude changed
 
@@ -49,7 +49,7 @@ Each time Claude starts on your message, the panel keeps a restore point: every 
 
 **Comments** reads the open merge request of the branch you are on from GitLab, through [glab](https://gitlab.com/gitlab-org/cli) and the login it keeps (`glab auth login --hostname <your GitLab>`; the copy [clawd-statusbar](https://github.com/itsomidho/clawd-statusbar) installs works too). So you see what reviewers asked for without opening GitLab.
 
-- Each thread shows its author, how long ago, the file and line it is on (press it to open the file there), the comment's first lines and its replies. Resolved threads are hidden, and so are your own: a thread only you wrote in (a note of yours no one has answered); one a reviewer replied to stays. `b` shows them all, dim.
+- Each thread shows its author, how long ago, the file and line it is on (press it to open the file there), the comment's first lines and its replies. Resolved threads come last, newest first, a dim line each under **Resolved** (press one to read it whole). Your own are hidden: a thread only you wrote in (a note of yours no one has answered); one a reviewer replied to stays. `b` shows yours, dim.
 - **Fix** sends one thread to Claude with its file, line and every reply, asking it to change the code, or say why not, without replying on GitLab. **Fix all** (`x`) sends every unresolved thread in one message. Plain comments (a review summary) have their own **Fix**.
 - A press on a comment (its author or its text) opens it whole in a dialog over the panel: every reply in full, code kept as written. The arrows scroll it, Escape closes it, and **fix**, **reply**, **resolve** and **web** work from there too.
 - **Reply** opens a field under the title (three lines; `\` then Enter for a new line): type your answer and press Enter to post it on the thread under your GitLab name, as you would on GitLab. Cancel, or an empty Enter, posts nothing; if GitLab refuses, the field stays open with your text and the panel says why.

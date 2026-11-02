@@ -144,9 +144,14 @@ export function openThreads(state: MrState) {
   return state.threads.filter(one => !one.isResolved && !isMine(state, one))
 }
 
-// What the list hides until asked: resolved threads, and your own.
+// What the list hides until asked: your own open threads.
 export function hiddenThreads(state: MrState) {
-  return state.threads.filter(one => one.isResolved || isMine(state, one))
+  return state.threads.filter(one => !one.isResolved && isMine(state, one))
+}
+
+// Resolved threads, newest first: listed at the end, one line each.
+export function resolvedThreads(state: MrState) {
+  return state.threads.filter(one => one.isResolved).reverse()
 }
 
 export function unresolvedCount(state: MrState) {

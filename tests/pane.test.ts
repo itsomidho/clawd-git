@@ -677,24 +677,28 @@ test('Comments lists the branch\'s merge request threads, open ones first, with 
   // Three open (two resolvable + a plain comment), the resolvable two counted on the tab.
   expect((await ui.find({ key: 'tab:comments' }))?.text).toContain('Comments 2')
   expect(await ui.find({ text: /!42/ })).toBeDefined()
-  expect(await ui.find({ text: /2 unresolved · 1 comment · 1 resolved, 2 yours \(hidden\)/ })).toBeDefined()
+  expect(await ui.find({ text: /2 unresolved · 1 comment · 1 resolved · 2 yours \(hidden\)/ })).toBeDefined()
   // Threads only you wrote in are hidden.
   expect(await ui.find({ text: /Ready for another look/ })).toBeUndefined()
   expect(await ui.find({ text: /Note to self/ })).toBeUndefined()
   expect((await ui.find({ key: 'where:0' }))?.text).toContain('view.php:12')
   expect(await ui.find({ text: /Use esc_html here/ })).toBeDefined()
   expect(await ui.find({ text: /1 reply · last me/ })).toBeDefined()
-  // The resolved thread and the system note are not listed.
-  expect(await ui.find({ text: /Rename this/ })).toBeUndefined()
+  // The resolved thread is listed last, a line under Resolved; a press reads it whole.
+  expect(await ui.find({ text: /Resolved ─+ 1/ })).toBeDefined()
+  expect((await ui.find({ key: 'done:0' }))?.text).toContain('reviewer · ')
+  expect((await ui.find({ key: 'done:0' }))?.text).toContain('Rename this.')
+  expect(await ui.find({ key: 'resolve:3' })).toBeUndefined()
+  // The system note is not listed.
   expect(await ui.find({ text: /added 1 commit/ })).toBeUndefined()
   // A plain comment can be fixed but not resolved.
   expect(await ui.find({ key: 'fix:2' })).toBeDefined()
   expect(await ui.find({ key: 'resolve:2' })).toBeUndefined()
-  // Show all lists them, after the open ones.
+  // b lists your own, after the open ones.
   expect(await isLive(ui, 'session')).toBe(true)
   await ui.press({ key: 'session' })
-  expect(await ui.find({ text: /Rename this/ })).toBeDefined()
   expect(await ui.find({ text: /Ready for another look/ })).toBeDefined()
+  expect(await ui.find({ text: /2 yours · / })).toBeDefined()
   await ui.unmount()
 })
 

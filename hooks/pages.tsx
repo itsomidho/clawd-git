@@ -10,7 +10,7 @@ import {
   isDebuggable, removeNote, saveNote, search, sendReview, stage, toggleDir, toggleSessionOnly, unstage,
   fixThreads, openMrWeb, resolveConfirmed, toggleResolved, startReply, cancelReply, sendReply, openComment,
 } from './actions'
-import { askResolve, hiddenThreads, isMine, openThreads, whereOf } from './mr'
+import { askResolve, hiddenThreads, isMine, openThreads, resolvedThreads, whereOf } from './mr'
 import { KEEP, whenOf } from './checkpoints'
 import { fit, fitPath, fsTreeRows, hunkLines } from './git'
 import { iconFor, lineIconFor, outlineIconFor, simpleIconFor } from './icons'
@@ -737,6 +737,12 @@ export function wrapText(text: string, width: number): string[] {
   return out
 }
 
+// A comment's first words, for a one-line row: markdown marks dropped.
+function gist(body: string) {
+  const line = body.split('\n').map(one => one.trim()).find(one => one !== '' && !/^```/.test(one)) ?? ''
+  return line.replace(/^#+\s*/, '').replace(/[*_`]/g, '')
+}
+
 // A comment body's first lines, for the list: code fences dropped, blank runs closed.
 const BODY_LINES = 4
 function bodyLines(body: string, width: number) {
@@ -764,10 +770,10 @@ export function commentsPage(
 ): Page {
   const { Box, Text, Button } = el
   const open = openThreads(state)
-  // Resolved threads and your own are hidden until b shows them.
+  // Your own open threads are hidden until b shows them; resolved ones are
+  // listed last, a line each.
   const hidden = hiddenThreads(state)
-  const resolvedN = hidden.filter(one => one.isResolved).length
-  const mineN = hidden.length - resolvedN
+  const resolved = resolvedThreads(state)
   // Fix all takes the threads waiting to be resolved; plain comments (a
   // review's summary, a note) each have their own Fix.
   const unresolved = open.filter(one => one.isResolvable)
@@ -789,7 +795,7 @@ export function commentsPage(
   }
   page.actions.push({ key: 'edit', label: glyph('web'), word: 'Open MR', onPress: () => { void openMrWeb($) } })
   if (hidden.length > 0) {
-    page.actions.push({ key: 'session', label: glyph('check'), word: isShowingResolved ? 'Show open' : 'Show all', onPress: () => { void toggleResolved($) } })
+    page.actions.push({ key: 'session', label: glyph('check'), word: isShowingResolved ? 'Hide yours' : 'Show yours', onPress: () => { void toggleResolved($) } })
   }
   if (unresolved.length > 0) {
     page.actions.push({ key: 'review', label: glyph('claude'), word: `Fix all ${unresolved.length}`, color: CLAUDE_COLOR, onPress: () => { void fixThreads($, unresolved) } })
@@ -826,18 +832,16 @@ export function commentsPage(
   const summary = [
     unresolved.length > 0 ? `${unresolved.length} unresolved` : 'nothing to resolve',
     plain > 0 ? `${plain} comment${plain === 1 ? '' : 's'}` : '',
-    hidden.length > 0
-      ? `${[resolvedN > 0 ? `${resolvedN} resolved` : '', mineN > 0 ? `${mineN} yours` : ''].filter(Boolean).join(', ')}${isShowingResolved ? '' : ' (hidden)'}`
-      : '',
+    resolved.length > 0 ? `${resolved.length} resolved` : '',
+    hidden.length > 0 ? `${hidden.length} yours${isShowingResolved ? '' : ' (hidden)'}` : '',
     state.at > 0 ? (Date.now() - state.at < 60_000 ? 'read just now' : `read ${ageOf(new Date(state.at).toISOString())} ago`) : '',
   ].filter(Boolean).join(DOT)
   page.rows.push(node('mr:summary', <Text dimColor wrap="truncate-end">{summary}</Text>))
-  if (open.length === 0 && !isShowingResolved) {
+  const shown = isShowingResolved ? [...open, ...hidden] : open
+  if (shown.length === 0) {
     page.rows.push(node('mr:gap', <Text> </Text>))
     page.rows.push(node('mr:none', <Text color={OK_COLOR}>{`${glyph('check')} No open comments on this merge request.`}</Text>))
-    return page
   }
-  const shown = isShowingResolved ? [...open, ...hidden] : open
   const textWidth = Math.max(10, width - 2)
   shown.forEach((one, i) => {
     const first = one.notes[0]!
@@ -898,5 +902,26 @@ export function commentsPage(
       </Box>
     )))
   })
+  // Resolved threads, newest first, a line each: a press reads one whole.
+  if (resolved.length > 0) {
+    page.rows.push(node('res:gap', <Text> </Text>))
+    page.rows.push(node('res:rule', section(el, 'Resolved', String(resolved.length), width)))
+    resolved.forEach((one, i) => {
+      const first = one.notes[0]!
+      const replies = one.notes.length - 1
+      const head = `${glyph('check')} ${first.author}${DOT}${ageOf(first.at)}${DOT}`
+      const tail = replies > 0 ? `${DOT}${replies} repl${replies === 1 ? 'y' : 'ies'}` : ''
+      const room = Math.max(6, width - [...head].length - [...tail].length - 1)
+      page.rows.push(node(`res:${one.id}`, (
+        <Box key={`resrow:${one.id}`} height={1} overflow="hidden">
+          <Button key={`done:${i}`} plain hover={HOVER} onPress={() => { void openComment($, one.id) }}>
+            <Text dimColor>{head}</Text>
+            <Text dimColor>{fit(gist(first.body), room)}</Text>
+            <Text dimColor>{tail}</Text>
+          </Button>
+        </Box>
+      )))
+    })
+  }
   return page
 }
