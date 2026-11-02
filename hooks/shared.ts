@@ -20,8 +20,8 @@ export const OLD_FILES_PANE = 'files'
 export const TABS: { id: Exclude<Tab, 'diff'>; label: string; glyph: readonly [string, string] }[] = [
   { id: 'files', label: 'Files', glyph: ['', ''] },
   { id: 'changes', label: 'Changes', glyph: ['', ''] },
-  { id: 'commits', label: 'Commits', glyph: ['', ''] },
   { id: 'restore', label: 'Restore', glyph: ['\uf1da', '\uea82'] },
+  { id: 'commits', label: 'Commits', glyph: ['', ''] },
   { id: 'comments', label: 'Comments', glyph: ['\uf086', '\ueac7'] },
 ]
 

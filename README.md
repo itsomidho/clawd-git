@@ -14,8 +14,8 @@ A live git panel for [Claude Code](https://claude.com/claude-code), docked besid
 |---|---|
 | **Files** | The folder tree on disk, as an editor's sidebar: open a folder, press a file to see its diff (or its text). Git-ignored entries dimmed, changed files colored with their status, folders holding changes marked •. **Search** finds any file by name. |
 | **Changes** | The branch and every changed file, grouped (conflicts, staged, unstaged, new), with `+added −removed`. **Diff all** shows every change at once. |
-| **Commits** | The commit graph across all branches, one color per lane; press a commit to see its diff. |
 | **Restore** | Restore points: the project's files as they were before each of Claude's turns. Press one to see what restoring would change; **restore** puts them back. |
+| **Commits** | The commit graph across all branches, one color per lane; press a commit to see its diff. |
 | **Comments** | The review comments on the branch's open GitLab merge request: who, where (file and line) and what, unresolved first, with the count on the tab. **Fix** hands a comment to Claude. |
 
 A diff opens over the tab it came from; **Back** returns there. The header stays put while the rows scroll (wheel, PageUp/PageDown, Home/End), and anything wider than the panel slides sideways with ◀ ▶.
@@ -85,7 +85,7 @@ For Claude's plan as it works, add [clawd-tasks](https://github.com/itsomidho/cl
 
 ## Use
 
-`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `commits`, `restore`, `comments`, `diff` or `turn` opens it on that tab or view. Click anything in it, or focus it with ctrl+x tab to use its keys. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
+`/git-pane` shows or hides the panel; `/git-pane files`, `changes`, `restore`, `commits`, `comments`, `diff` or `turn` opens it on that tab or view. Click anything in it, or focus it with ctrl+x tab to use its keys. The side pane needs Claude Code's fullscreen layout; on a narrow terminal it waits until there is room.
 
 It refreshes right after each edit or shell command of Claude's. In between it asks git for its status every 2 seconds and reads the rest only when something moved, so a quiet repository costs one `git status` per tick.
 
