@@ -855,12 +855,8 @@ export function commentsPage(
     page.rows.push(node(`t:${one.id}:head`, (
       <Box key={`thead:${one.id}`} flexDirection="row" height={1} overflow="hidden">
         <Text color={isDone ? OK_COLOR : ACCENT} dimColor={isDim}>{isDone ? `${glyph('check')} ` : isDim ? '○ ' : '● '}</Text>
-        <Box key={`twho:${one.id}`} flexShrink={0}>
-          <Button key={`read:${i}`} plain hover={HOVER_BUTTON} onPress={() => { void openComment($, one.id) }}>
-            <Text bold={!isDim} dimColor={isDim}>{first.author}</Text>
-            <Text dimColor>{head.slice(first.author.length)}</Text>
-          </Button>
-        </Box>
+        <Text bold={!isDim} dimColor={isDim}>{first.author}</Text>
+        <Text dimColor>{head.slice(first.author.length)}</Text>
         {one.path
           ? (
               <Box key={`twhere:${one.id}`} flexShrink={1} overflow="hidden">
@@ -875,15 +871,9 @@ export function commentsPage(
     if (one.path && one.path.includes('/')) {
       page.rows.push(node(`t:${one.id}:path`, <Text dimColor wrap="truncate-end">{`  ${fitFolder(one.path.slice(0, one.path.lastIndexOf('/')), textWidth)}`}</Text>))
     }
-    // The comment's first lines: a press opens it whole.
+    // The comment's first lines, plain text (so it can be selected); read opens it whole.
     bodyLines(first.body, textWidth).forEach((line, j) => {
-      page.rows.push(node(`t:${one.id}:b${j}`, (
-        <Box key={`tbody:${one.id}:${j}`} height={1} overflow="hidden">
-          <Button key={`read:${i}:${j}`} plain hover={HOVER} onPress={() => { void openComment($, one.id) }}>
-            <Text dimColor={isDim} wrap="truncate-end">{`  ${line}`}</Text>
-          </Button>
-        </Box>
-      )))
+      page.rows.push(node(`t:${one.id}:b${j}`, <Text dimColor={isDim} wrap="truncate-end">{`  ${line}`}</Text>))
     })
     if (one.notes.length > 1) {
       const replies = one.notes.length - 1
@@ -892,6 +882,7 @@ export function commentsPage(
     const buttons = [
       ...(isDone ? [] : [{ key: `fix:${i}`, label: `${glyph('claude')} fix`, color: CLAUDE_COLOR, onPress: () => { void fixThreads($, [one]) } }]),
       ...(one.isResolvable && !isDone ? [{ key: `resolve:${i}`, label: `${glyph('check')} resolve`, color: OK_COLOR, onPress: () => { void askResolve($, one) } }] : []),
+      { key: `read:${i}`, label: '⤢ read', color: ACCENT, onPress: () => { void openComment($, one.id) } },
       { key: `reply:${i}`, label: '↩ reply', color: ACCENT, onPress: () => { void startReply($, { id: one.id, where: whereOf(one), author: first.author }) } },
       { key: `web:${i}`, label: `${glyph('web')} web`, color: 'gray', onPress: () => { void openMrWeb($, one) } },
     ]

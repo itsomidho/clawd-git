@@ -820,7 +820,9 @@ test('A press on a thread opens it whole in a dialog: every note in full, with i
   await ui.press({ key: 'tab:comments' })
   // The list shows a few lines; the twelfth is not among them.
   expect(await ui.find({ text: /Line 12 of/ })).toBeUndefined()
-  await ui.press({ key: 'read:0:1' })
+  // The text itself is no button (it can be selected); read opens the dialog.
+  expect(await ui.find({ key: 'read:0:1' })).toBeUndefined()
+  await ui.press({ key: 'read:0' })
 
   const dialog = await $.ui.mount({ plugin: 'clawd-git', surface: 'terminal', ...DIALOG })
   expect(await dialog.find({ text: /Line 1 of/ })).toBeDefined()
